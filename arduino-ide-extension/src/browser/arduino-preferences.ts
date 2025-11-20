@@ -315,6 +315,26 @@ const properties: ArduinoPreferenceSchemaProperties = {
     ),
     default: defaultMonitorWidgetDockPanel,
   },
+
+  // Spectre AI Assistant Configuration
+  'arduino.spectre.model': {
+    type: 'string',
+    enum: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
+    default: 'gemini-2.5-flash',
+    markdownDescription: nls.localize(
+      'arduino/preferences/spectre.model',
+      "AI model used by the Spectre assistant. **'gemini-2.5-flash'** provides balanced performance and comprehensive responses. **'gemini-2.5-flash-lite'** offers faster response times with reduced token usage. Defaults to 'gemini-2.5-flash'."
+    ),
+  },
+  'arduino.spectre.mode': {
+    type: 'string',
+    enum: ['basic', 'agent'],
+    default: 'basic',
+    markdownDescription: nls.localize(
+      'arduino/preferences/spectre.mode',
+      "Operating mode for the Spectre assistant. **'basic'** provides direct question-and-answer responses for code explanations and guidance. **'agent'** enables autonomous task execution, including multi-step planning, code generation, and file modifications. Agent mode requires user confirmation before executing actions. Defaults to 'basic'."
+    ),
+  },
 };
 export const ArduinoConfigSchema: PreferenceSchema = {
   type: 'object',
@@ -351,6 +371,8 @@ export interface ArduinoConfiguration {
   'arduino.sketch.inoBlueprint': string;
   'arduino.checkForUpdates': boolean;
   'arduino.monitor.dockPanel': MonitorWidgetDockPanel;
+  'arduino.spectre.model': 'gemini-2.5-flash' | 'gemini-2.5-flash-lite';
+  'arduino.spectre.mode': 'basic' | 'agent';
 }
 
 export const ArduinoPreferences = Symbol('ArduinoPreferences');

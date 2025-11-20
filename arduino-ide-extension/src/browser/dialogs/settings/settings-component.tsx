@@ -30,6 +30,8 @@ import {
   arduinoThemeTypeOf,
 } from '../../theia/core/theming';
 import { Theme } from '@theia/core/lib/common/theme';
+import { SpectreSecretsService } from '../../../common/protocol/spectre-secrets-service';
+import { SpectreSecretsFrontendClient } from '../../spectre/spectre-secrets-frontend-client';
 
 const maxScale = InterfaceScale.ZoomLevel.toPercentage(
   InterfaceScale.ZoomLevel.MAX
@@ -73,20 +75,43 @@ export class SettingsComponent extends React.Component<
   }
 
   override componentDidMount(): void {
+    // Initialize the component by loading settings and Spectre API key status.
+    // This uses promise chaining to ensure initial state is set before loading
+    // the API key status from the backend.
     this.props.settingsService
       .settings()
-      .then((settings) =>
-        this.setState(SettingsComponent.State.fromSettings(settings))
-      );
+      .then((settings) => {
+        const initialState = SettingsComponent.State.fromSettings(settings);
+        this.setState(initialState);
+
+        // Load Spectre API key status after initial state is set
+        return this.props.secretsService.getStatus();
+      })
+      .then(({ hasApiKey }: { hasApiKey: boolean }) =>
+        this.setState({ spectreHasApiKey: hasApiKey })
+      )
+      .catch(() => this.setState({ spectreHasApiKey: false }));
     this.toDispose.pushAll([
       this.props.settingsService.onDidChange((settings) =>
         this.setState((prevState) => ({
           ...SettingsComponent.State.merge(prevState, settings),
         }))
       ),
-      this.props.settingsService.onDidReset((settings) =>
-        this.setState(SettingsComponent.State.fromSettings(settings))
-      ),
+      this.props.settingsService.onDidReset((settings) => {
+        const newState = SettingsComponent.State.fromSettings(settings);
+        this.setState(newState);
+        // Refresh Spectre status when dialog is reset/reopened
+        this.props.secretsService
+          .getStatus()
+          .then(({ hasApiKey }: { hasApiKey: boolean }) =>
+            this.setState({ spectreHasApiKey: hasApiKey })
+          )
+          .catch(() => this.setState({ spectreHasApiKey: false }));
+      }),
+      // Subscribe to API key status change events from backend
+      this.props.secretsFrontendClient.onStatusChangeEvent((status) => {
+        this.setState({ spectreHasApiKey: status.hasApiKey });
+      }),
     ]);
   }
 
@@ -99,16 +124,30 @@ export class SettingsComponent extends React.Component<
       return <div />;
     }
     return (
-      <Tabs>
+      <Tabs onSelect={this.onTabSelect}>
         <TabList>
           <Tab>{nls.localize('vscode/settingsTree/settings', 'Settings')}</Tab>
           <Tab>{nls.localize('arduino/preferences/network', 'Network')}</Tab>
+          <Tab>{nls.localize('arduino/preferences/spectre', 'Spectre')}</Tab>
         </TabList>
         <TabPanel>{this.renderSettings()}</TabPanel>
         <TabPanel>{this.renderNetwork()}</TabPanel>
+        <TabPanel>{this.renderSpectre()}</TabPanel>
       </Tabs>
     );
   }
+
+  /**
+   * Called when a tab is selected. Refreshes Spectre API key status
+   * when the Spectre tab (index 2) is selected to ensure UI displays
+   * the most current backend state.
+   */
+  protected onTabSelect = (index: number): void => {
+    // Spectre tab index is 2 (0=Settings, 1=Network, 2=Spectre)
+    if (index === 2) {
+      this.refreshSpectreStatus();
+    }
+  };
 
   protected renderSettings(): React.ReactNode {
     const scalePercentage = 100 + this.state.interfaceScale * 20;
@@ -418,6 +457,100 @@ export class SettingsComponent extends React.Component<
           </label>
         </form>
         {this.renderProxySettings()}
+      </div>
+    );
+  }
+
+  /**
+   * Renders the Spectre tab panel containing API key management controls,
+   * model selection, and mode configuration for the Spectre AI assistant.
+   */
+  protected renderSpectre(): React.ReactNode {
+    return (
+      <div className="content noselect">
+        <div className="column-container">
+          <div className="column">
+            <div className="flex-line">
+              {nls.localize('arduino/spectre/apiKey', 'Gemini API key') + ':'}
+            </div>
+            <div className="flex-line">
+              {nls.localize('arduino/spectre/model', 'Model') + ':'}
+            </div>
+            <div className="flex-line">
+              {nls.localize('arduino/spectre/mode', 'Mode') + ':'}
+            </div>
+          </div>
+          <div className="column">
+            <div className="flex-line">
+              <input
+                className="theia-input stretch"
+                type="password"
+                placeholder={
+                  this.state.spectreHasApiKey
+                    ? nls.localize('arduino/spectre/keyStored', 'Key stored')
+                    : nls.localize('arduino/spectre/keyNotSet', 'Not set')
+                }
+                value={this.state.spectreApiKeyInput}
+                onChange={(e) =>
+                  this.setState({ spectreApiKeyInput: e.target.value })
+                }
+              />
+              <button
+                className="theia-button shrink"
+                disabled={
+                  this.state.spectreBusy ||
+                  this.state.spectreApiKeyInput.trim() === ''
+                }
+                onClick={this.saveApiKeyDidClick}
+              >
+                {nls.localize('arduino/spectre/saveKey', 'Save key')}
+              </button>
+              <button
+                className="theia-button shrink"
+                disabled={
+                  this.state.spectreBusy || !this.state.spectreHasApiKey
+                }
+                onClick={this.clearApiKeyDidClick}
+              >
+                {nls.localize('arduino/spectre/clearKey', 'Clear key')}
+              </button>
+            </div>
+            <div className="flex-line">
+              <select
+                className="theia-select"
+                value={this.state.spectreModel}
+                onChange={(e) =>
+                  this.setState({
+                    spectreModel: e.target.value as Settings['spectreModel'],
+                  })
+                }
+              >
+                <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                <option value="gemini-2.5-flash-lite">
+                  Gemini 2.5 Flash Lite
+                </option>
+              </select>
+            </div>
+            <div className="flex-line">
+              <select
+                className="theia-select"
+                value={this.state.spectreMode}
+                onChange={(e) =>
+                  this.setState({
+                    spectreMode: e.target.value as Settings['spectreMode'],
+                  })
+                }
+              >
+                <option value="basic">
+                  {nls.localize('arduino/spectre/basic', 'Basic Ask Mode')}
+                </option>
+                <option value="agent">
+                  {nls.localize('arduino/spectre/agent', 'Agent Mode')}
+                </option>
+              </select>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -787,6 +920,61 @@ export class SettingsComponent extends React.Component<
     const copyNetwork = deepClone(network);
     return copyNetwork;
   }
+  /**
+   * Saves the Spectre API key to the backend secure storage.
+   * After saving, clears the input field and refreshes the status
+   * to confirm the key was successfully stored.
+   */
+  protected saveApiKeyDidClick = async (): Promise<void> => {
+    const key = this.state.spectreApiKeyInput.trim();
+    if (!key) {
+      return;
+    }
+    try {
+      this.setState({ spectreBusy: true });
+      await this.props.secretsService.setApiKey(key);
+      // Clear the input after saving; refresh status from backend to be sure
+      const status = await this.props.secretsService.getStatus();
+      this.setState({
+        spectreHasApiKey: status.hasApiKey,
+        spectreApiKeyInput: '',
+      });
+    } finally {
+      this.setState({ spectreBusy: false });
+    }
+  };
+
+  /**
+   * Clears the Spectre API key from the backend secure storage.
+   * After clearing, resets the UI state and refreshes the status.
+   * Provides a fallback in case the status fetch fails.
+   */
+  protected clearApiKeyDidClick = async (): Promise<void> => {
+    try {
+      this.setState({ spectreBusy: true });
+      await this.props.secretsService.clearApiKey();
+      // Clear any typed value and refresh the status to avoid stale UI
+      const status = await this.props.secretsService
+        .getStatus()
+        .catch(() => ({ hasApiKey: false }));
+      this.setState({
+        spectreHasApiKey: status.hasApiKey,
+        spectreApiKeyInput: '',
+      });
+    } finally {
+      this.setState({ spectreBusy: false });
+    }
+  };
+
+  private async refreshSpectreStatus(): Promise<void> {
+    try {
+      const { hasApiKey } = await this.props.secretsService.getStatus();
+      this.setState({ spectreHasApiKey: hasApiKey });
+    } catch {
+      // If backend is unavailable, assume no API key is configured
+      this.setState({ spectreHasApiKey: false });
+    }
+  }
 }
 export namespace SettingsComponent {
   export interface Props {
@@ -796,9 +984,15 @@ export namespace SettingsComponent {
     readonly windowService: WindowService;
     readonly localizationProvider: AsyncLocalizationProvider;
     readonly themeService: ThemeService;
+    readonly secretsService: SpectreSecretsService;
+    readonly secretsFrontendClient: SpectreSecretsFrontendClient;
   }
   export type State = Settings & {
     rawAdditionalUrlsValue: string;
+    // Spectre UI-only state
+    spectreApiKeyInput: string;
+    spectreHasApiKey: boolean;
+    spectreBusy: boolean;
   };
   export namespace State {
     export function fromSettings(settings: Settings): State {
@@ -807,6 +1001,9 @@ export namespace SettingsComponent {
         rawAdditionalUrlsValue: AdditionalUrls.stringify(
           settings.additionalUrls
         ),
+        spectreApiKeyInput: '',
+        spectreHasApiKey: false,
+        spectreBusy: false,
       };
     }
     export function toSettings(state: State): Settings {
@@ -830,7 +1027,14 @@ export namespace SettingsComponent {
         ','
       );
       return {
+        // Keep all persisted settings from backend/preferences
         ...settings,
+        // Preserve UI-only state fields for Spectre (these are not persisted)
+        // to maintain the current UI state during settings updates
+        spectreApiKeyInput: prevState.spectreApiKeyInput,
+        spectreHasApiKey: prevState.spectreHasApiKey,
+        spectreBusy: prevState.spectreBusy,
+        // Keep the raw text the user typed for additional URLs
         rawAdditionalUrlsValue: prevState.rawAdditionalUrlsValue,
         additionalUrls: AdditionalUrls.sameAs(
           prevAdditionalUrls,

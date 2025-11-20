@@ -97,12 +97,8 @@ export class MonitorViewContribution
       defaultMonitorWidgetDockPanel;
     this.monitorManagerProxy.onMonitorShouldReset(() => this.reset());
     this.arduinoPreferences.onPreferenceChanged((event) => {
-      if (
-        event.preferenceName === 'arduino.monitor.dockPanel' &&
-        isMonitorWidgetDockPanel(event.newValue) &&
-        event.newValue !== this._panel
-      ) {
-        this._panel = event.newValue;
+      if (this.shouldUpdateDockPanel(event)) {
+        this._panel = event.newValue as ApplicationShell.Area;
         const widget = this.tryGetWidget();
         // reopen at the new position if opened
         if (widget) {
@@ -111,6 +107,17 @@ export class MonitorViewContribution
         }
       }
     });
+  }
+
+  /**
+   * Determines if the dock panel should be updated based on the preference change event.
+   */
+  private shouldUpdateDockPanel(event: { preferenceName: string; newValue: any }): boolean {
+    return (
+      event.preferenceName === 'arduino.monitor.dockPanel' &&
+      isMonitorWidgetDockPanel(event.newValue) &&
+      event.newValue !== this._panel
+    );
   }
 
   override get defaultViewOptions(): ApplicationShell.WidgetOptions {
@@ -215,19 +222,11 @@ export class MonitorViewContribution
   }
 
   protected renderAutoScrollButton(): React.ReactNode {
-    return (
-      <React.Fragment key="autoscroll-toolbar-item">
-        <div
-          title={nls.localize(
-            'vscode/output.contribution/toggleAutoScroll',
-            'Toggle Autoscroll'
-          )}
-          className={`item enabled fa fa-angle-double-down arduino-monitor ${
-            this.model.autoscroll ? 'toggled' : ''
-          }`}
-          onClick={this.toggleAutoScroll}
-        ></div>
-      </React.Fragment>
+    return this.renderToolbarButton(
+      nls.localize('vscode/output.contribution/toggleAutoScroll', 'Toggle Autoscroll'),
+      'fa-angle-double-down',
+      this.model.autoscroll,
+      this.toggleAutoScroll
     );
   }
 
@@ -237,19 +236,25 @@ export class MonitorViewContribution
   }
 
   protected renderTimestampButton(): React.ReactNode {
+    return this.renderToolbarButton(
+      nls.localize('arduino/serial/toggleTimestamp', 'Toggle Timestamp'),
+      'fa-clock-o',
+      this.model.timestamp,
+      this.toggleTimestamp
+    );
+  }
+  protected renderToolbarButton(
+    title: string,
+    iconClass: string,
+    toggled: boolean,
+    onClick: () => void
+  ): React.ReactNode {
     return (
-      <React.Fragment key="line-ending-toolbar-item">
-        <div
-          title={nls.localize(
-            'arduino/serial/toggleTimestamp',
-            'Toggle Timestamp'
-          )}
-          className={`item enabled fa fa-clock-o arduino-monitor ${
-            this.model.timestamp ? 'toggled' : ''
-          }`}
-          onClick={this.toggleTimestamp}
-        ></div>
-      </React.Fragment>
+      <div
+        title={title}
+        className={`item enabled fa ${iconClass} arduino-monitor${toggled ? ' toggled' : ''}`}
+        onClick={onClick}
+      ></div>
     );
   }
 

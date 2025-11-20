@@ -107,9 +107,6 @@ export class MonitorWidget extends ReactWidget {
     this.update();
   }
   
-  copyOutput(): void {
-    this.copyOutputEmitter.fire();
-  }
 
   override dispose(): void {
     this.toDisposeOnReset.dispose();
@@ -288,4 +285,8 @@ export class MonitorWidget extends ReactWidget {
       this.monitorManagerProxy.changeSettings({ pluggableMonitorSettings });
     });
   };
+
+  copyOutput(): void {
+    this.copyOutputEmitter.fire();
+  }
 }

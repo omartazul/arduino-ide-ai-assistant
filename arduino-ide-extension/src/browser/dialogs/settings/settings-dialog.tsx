@@ -17,6 +17,8 @@ import { AsyncLocalizationProvider } from '@theia/core/lib/common/i18n/localizat
 import { AdditionalUrls } from '../../../common/protocol';
 import { AbstractDialog } from '../../theia/dialogs/dialogs';
 import { ThemeService } from '@theia/core/lib/browser/theming';
+import { SpectreSecretsService } from '../../../common/protocol/spectre-secrets-service';
+import { SpectreSecretsFrontendClient } from '../../spectre/spectre-secrets-frontend-client';
 
 @injectable()
 export class SettingsWidget extends ReactWidget {
@@ -38,6 +40,12 @@ export class SettingsWidget extends ReactWidget {
   @inject(ThemeService)
   private readonly themeService: ThemeService;
 
+  @inject(SpectreSecretsService)
+  protected readonly secretsService: SpectreSecretsService;
+
+  @inject(SpectreSecretsFrontendClient)
+  protected readonly secretsFrontendClient: SpectreSecretsFrontendClient;
+
   protected render(): React.ReactNode {
     return (
       <SettingsComponent
@@ -47,6 +55,8 @@ export class SettingsWidget extends ReactWidget {
         windowService={this.windowService}
         localizationProvider={this.localizationProvider}
         themeService={this.themeService}
+        secretsService={this.secretsService}
+        secretsFrontendClient={this.secretsFrontendClient}
       />
     );
   }

@@ -1,6 +1,6 @@
 import { ApplicationError } from '@theia/core/lib/common/application-error';
 import type { Event } from '@theia/core/lib/common/event';
-import type { JsonRpcServer } from '@theia/core/lib/common/messaging/proxy-factory';
+import type { RpcServer } from '@theia/core/lib/common/messaging/proxy-factory';
 import { nls } from '@theia/core/lib/common/nls';
 import type { BoardIdentifier, PortIdentifier } from './boards-service';
 
@@ -16,7 +16,7 @@ export type MonitorManagerProxyFactory = () => MonitorManagerProxy;
 export const MonitorManagerProxyPath = '/services/monitor-manager-proxy';
 export const MonitorManagerProxy = Symbol('MonitorManagerProxy');
 export interface MonitorManagerProxy
-  extends JsonRpcServer<MonitorManagerProxyClient> {
+  extends RpcServer<MonitorManagerProxyClient> {
   startMonitor(
     board: BoardIdentifier,
     port: PortIdentifier,

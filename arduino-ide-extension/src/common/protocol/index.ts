@@ -13,3 +13,5 @@ export * from './executable-service';
 export * from './response-service';
 export * from './notification-service';
 export * from './monitor-service';
+export * from './spectre-secrets-service';
+export * from './spectre-ai-service';

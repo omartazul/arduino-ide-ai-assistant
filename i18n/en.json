@@ -415,6 +415,9 @@
       },
       "sketchbook.location": "Sketchbook location",
       "sketchbook.showAllFiles": "True to show all sketch files inside the sketch. It is false by default.",
+      "spectre": "Spectre",
+      "spectre.mode": "Operating mode for the Spectre assistant. **'basic'** provides direct question-and-answer responses for code explanations and guidance. **'agent'** enables autonomous task execution, including multi-step planning, code generation, and file modifications. Agent mode requires user confirmation before executing actions. Defaults to 'basic'.",
+      "spectre.model": "AI model used by the Spectre assistant. **'gemini-2.5-flash'** provides balanced performance and comprehensive responses. **'gemini-2.5-flash-lite'** offers faster response times with reduced token usage. Defaults to 'gemini-2.5-flash'.",
       "unofficialBoardSupport": "Click for a list of unofficial board support URLs",
       "upload": "upload",
       "upload.autoVerify": "True if the IDE should automatically verify the code before the upload. True by default. When this value is false, IDE does not recompile the code before uploading the binary to the board. It's highly advised to only set this value to false if you know what you are doing.",
@@ -489,6 +492,17 @@
     "sketchbook": {
       "newCloudSketch": "New Cloud Sketch",
       "newSketch": "New Sketch"
+    },
+    "spectre": {
+      "agent": "Agent Mode",
+      "apiKey": "Gemini API key",
+      "basic": "Basic Ask Mode",
+      "clearKey": "Clear key",
+      "keyNotSet": "Not set",
+      "keyStored": "Key stored",
+      "mode": "Mode",
+      "model": "Model",
+      "saveKey": "Save key"
     },
     "theme": {
       "currentThemeNotFound": "Could not find the currently selected theme: {0}. Arduino IDE has picked a built-in theme compatible with the missing one.",

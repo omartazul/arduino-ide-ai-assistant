@@ -51,6 +51,11 @@ async function run() {
     //   updateChannel
     // );
   }
+  // When packaging on Windows, remove macOS-specific darwin binaries from plugins
+  if (process.platform === 'win32') {
+    console.log('Running cleanup of darwin plugin binary folders to avoid WiX packaging errors on Windows.');
+    await exec('node', ['./scripts/cleanup-darwin-binaries.js']);
+  }
   const cp = exec('electron-builder', args, { stdio: 'inherit' });
   await cp;
 }

@@ -4,9 +4,9 @@ import { DisposableCollection } from '@theia/core/lib/common/disposable';
 import { areEqual, FixedSizeList as List } from 'react-window';
 import dateFormat from 'dateformat';
 import { messagesToLines, truncateLines, joinLines } from './monitor-utils';
+import { ClipboardService } from '@theia/core/lib/browser/clipboard-service';
 import { MonitorManagerProxyClient } from '../../../common/protocol';
 import { MonitorModel } from '../../monitor-model';
-import { ClipboardService } from '@theia/core/lib/browser/clipboard-service';
 
 export type Line = { message: string; timestamp?: Date; lineLen: number };
 

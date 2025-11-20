@@ -20,6 +20,7 @@
 @import "./custom-codicon.css";
 @import "./progress-bar.css";
 @import "./settings-step-input.css";
+@import "./spectre.css";
 
 :root {
     --arduino-button-height: 28px;
@@ -176,3 +177,23 @@ button.theia-button.message-box-dialog-button {
     justify-content: center;
     min-height: inherit;
 }
+
+/* Spectre: clean, mask-based tab icon to match Sketchbook/Monitor styles */
+
+/* Generic icon utility (non-TabBar contexts) */
+.spectre-icon {
+    background-color: var(--theia-foreground);
+    -webkit-mask: url(../icons/spectre.svg) center/contain no-repeat;
+    mask: url(../icons/spectre.svg) center/contain no-repeat;
+}
+
+/* Side activity bar: color behavior for mask-based icon */
+.p-TabBar.theia-app-sides .p-TabBar-tabIcon.spectre-icon {
+    background-color: var(--theia-activityBar-inactiveForeground);
+}
+.p-TabBar.theia-app-sides .p-TabBar-tab.p-mod-current .p-TabBar-tabIcon.spectre-icon,
+.p-TabBar.theia-app-sides .p-TabBar-tab:hover .p-TabBar-tabIcon.spectre-icon {
+    background-color: var(--theia-activityBar-foreground);
+}
+
+/* Let Theia/theme define active border thickness/height, ensuring parity with other tabs */

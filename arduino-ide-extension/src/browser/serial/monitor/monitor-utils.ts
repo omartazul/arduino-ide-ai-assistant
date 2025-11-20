@@ -1,5 +1,22 @@
 import { Line, SerialMonitorOutput } from './serial-monitor-send-output';
 
+function createNewLine(message: string): Line {
+  return {
+    message,
+    timestamp: new Date(),
+    lineLen: message.length,
+  };
+}
+
+function concatToLastLine(lines: Line[], message: string): void {
+  const lastLine = lines[lines.length - 1];
+  lastLine.message += message;
+  lastLine.lineLen += message.length;
+  if (!lastLine.timestamp) {
+    lastLine.timestamp = new Date();
+  }
+}
+
 export function messagesToLines(
   messages: string[],
   prevLines: Line[] = [],
@@ -18,18 +35,9 @@ export function messagesToLines(
 
     // if the previous messages ends with "separator" add a new line
     if (lastLine.message.charAt(lastLine.message.length - 1) === separator) {
-      linesToAdd.push({
-        message,
-        timestamp: new Date(),
-        lineLen: messageLen,
-      });
+      linesToAdd.push(createNewLine(message));
     } else {
-      // concatenate to the last line
-      linesToAdd[linesToAdd.length - 1].message += message;
-      linesToAdd[linesToAdd.length - 1].lineLen += messageLen;
-      if (!linesToAdd[linesToAdd.length - 1].timestamp) {
-        linesToAdd[linesToAdd.length - 1].timestamp = new Date();
-      }
+      concatToLastLine(linesToAdd, message);
     }
   }
 

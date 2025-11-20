@@ -1,4 +1,5 @@
-import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
+ 
+ import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import { ArduinoDaemonImpl } from './arduino-daemon-impl';
 import {
   ArduinoFirmwareUploader,
@@ -121,6 +122,18 @@ import {
 import { SettingsReader } from './settings-reader';
 import { VsCodePluginScanner } from './theia/plugin-ext-vscode/scanner-vscode';
 import { rebindParcelFileSystemWatcher } from './theia/filesystem/parcel-bindings';
+import {
+  SpectreSecretsService,
+  SpectreSecretsServicePath,
+  SpectreSecretsServiceClient,
+} from '../common/protocol/spectre-secrets-service';
+import { SpectreSecretsServiceImpl } from './spectre-secrets-service-impl';
+import {
+  SpectreAiService,
+  SpectreAiServicePath,
+} from '../common/protocol/spectre-ai-service';
+import { SpectreAiServiceImpl } from './spectre-ai-service-impl';
+import { SpectreAiClient } from '../common/protocol/spectre-ai-service';
 
 export default new ContainerModule((bind, unbind, isBound, rebind) => {
   bind(BackendApplication).toSelf().inSingletonScope();
@@ -131,6 +144,42 @@ export default new ContainerModule((bind, unbind, isBound, rebind) => {
   bind(ConfigService).toService(ConfigServiceImpl);
   // Note: The config service must start earlier than the daemon, hence the binding order of the BA contribution does matter.
   bind(BackendApplicationContribution).toService(ConfigServiceImpl);
+    // Shared Spectre secrets service - one instance for entire backend
+    bind(SpectreSecretsServiceImpl).toSelf().inSingletonScope();
+    bind(SpectreSecretsService).toService(SpectreSecretsServiceImpl);
+    bind(ConnectionHandler)
+      .toDynamicValue(
+        (context) =>
+          new JsonRpcConnectionHandler<SpectreSecretsServiceClient>(
+            SpectreSecretsServicePath,
+            (client) => {
+              const server = context.container.get<SpectreSecretsService>(
+                SpectreSecretsService
+              );
+              server.setClient(client);
+              client.onDidCloseConnection(() => server.disposeClient(client));
+              return server;
+            }
+          )
+      )
+      .inSingletonScope();
+
+    // Spectre AI service: per-connection (can inject shared secrets service)
+    bind(ConnectionContainerModule).toConstantValue(
+      ConnectionContainerModule.create(({ bind, bindBackendService }) => {
+        bind(SpectreAiServiceImpl).toSelf().inSingletonScope();
+        bind(SpectreAiService).toService(SpectreAiServiceImpl);
+        bindBackendService<SpectreAiService, SpectreAiClient>(
+          SpectreAiServicePath,
+          SpectreAiService,
+          (server, client) => {
+            server.setClient(client);
+            client.onDidCloseConnection(() => server.disposeClient(client));
+            return server;
+          }
+        );
+      })
+    );
   bind(ConnectionHandler)
     .toDynamicValue(
       (context) =>

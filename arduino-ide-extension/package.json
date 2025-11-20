@@ -1,7 +1,7 @@
 {
   "name": "arduino-ide-extension",
-  "version": "2.3.7",
-  "description": "An extension for Theia building the Arduino IDE",
+  "version": "1.0.0",
+  "description": "Arduino IDE AI Assistant extension",
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "prepare": "yarn download-cli && yarn download-fwuploader && yarn download-ls && yarn copy-i18n && yarn download-examples",
@@ -23,6 +23,7 @@
     "test:slow": "cross-env IDE2_TEST=true mocha \"./lib/test/**/*.slow-test.js\" --slow 5000"
   },
   "dependencies": {
+    "@google/genai": "^1.22.0",
     "@grpc/grpc-js": "^1.8.14",
     "@theia/application-package": "1.57.0",
     "@theia/core": "1.57.0",

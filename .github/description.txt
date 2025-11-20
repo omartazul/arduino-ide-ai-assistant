@@ -1,0 +1,5 @@
+# arduino-ide-ai-assistant
+
+Arduino IDE with Google Gemini AI integration. AI-powered code generation, autonomous agent mode, and intelligent assistance for Arduino development. Supports conversational mode and multi-step task execution.
+
+arduino, arduino-ide, gemini-ai, google-gemini, ai-assistant, code-generation, arduino-agent, arduino-ai, arduino-copilot, ide-ai, electron-app, theia-ide

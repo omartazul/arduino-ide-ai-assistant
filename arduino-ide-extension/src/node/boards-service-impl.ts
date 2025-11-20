@@ -199,7 +199,15 @@ export class BoardsServiceImpl
       );
       return debugFqbn;
     } catch (err) {
-      console.error(`Failed to get debug config: ${fqbn}, ${programmer}`, err);
+      // "Debugging is not supported" is a normal condition for many boards, not an error
+      if (
+        err instanceof Error &&
+        err.message === 'Debugging is not supported.'
+      ) {
+        console.debug(`Debug check: ${fqbn} does not support debugging`);
+      } else {
+        console.error(`Failed to get debug config: ${fqbn}, ${programmer}`, err);
+      }
       throw err;
     }
   }

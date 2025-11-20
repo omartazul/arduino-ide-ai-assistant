@@ -1,0 +1,997 @@
+/**
+ * Spectre AI Assistant Widget Styles
+ * 
+ * This file contains all styles for the Spectre AI chat interface.
+ * Organized into logical sections for maintainability.
+ * 
+ * @author Tazul Islam
+ */
+
+/* ============================================================================
+   BASE WIDGET CONTAINER
+   ============================================================================ */
+
+.arduino-spectre-widget {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  outline: none; /* Remove focus border when clicking widget */
+}
+
+.arduino-spectre-widget:focus {
+  outline: none; /* Ensure no focus outline on the widget container */
+}
+
+/* ============================================================================
+   CHIP COMPONENTS (Status indicators, tags)
+   ============================================================================ */
+
+.spectre-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--theia-editorWidget-border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: var(--theia-editorWidget-background);
+  color: var(--theia-foreground);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.spectre-chip.error {
+  background: var(--theia-errorForeground, #f48771);
+  color: var(--theia-editor-background, white);
+  border-color: var(--theia-errorForeground, #f48771);
+}
+
+.spectre-chip.warning {
+  background: var(--theia-warningBackground, rgba(255, 165, 0, 0.15));
+  color: var(--theia-warningForeground, orange);
+  border-color: var(--theia-warningForeground, orange);
+}
+
+/* ============================================================================
+   CHAT TABS (Session switcher)
+   ============================================================================ */
+
+.spectre-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  overflow-x: auto;
+}
+.spectre-tab {
+  white-space: nowrap;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--theia-foreground);
+  background: var(--theia-sideBarSectionHeader-background);
+  border: 1px solid transparent;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.spectre-tab:hover {
+  background: var(--theia-list-hoverBackground);
+}
+.spectre-tab.active {
+  background: var(--theia-tab-activeBackground, var(--theia-button-background));
+  border-color: var(--theia-focusBorder, var(--theia-button-background));
+  color: var(--theia-tab-activeForeground, var(--theia-button-foreground));
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--theia-focusBorder, var(--theia-button-background));
+}
+
+/* ============================================================================
+   MESSAGE DISPLAY AREA
+   ============================================================================ */
+
+.spectre-messages {
+  flex: 1;
+  overflow: auto;
+  margin: 0 8px;
+  border: 1px solid var(--theia-editorWidget-border);
+  border-radius: 10px;
+  background: var(--theia-editor-background);
+  padding: 10px;
+}
+
+.spectre-empty {
+  opacity: 0.7;
+  font-size: 13px;
+}
+
+.spectre-row {
+  display: flex;
+  margin-bottom: 10px;
+}
+.spectre-row.user { justify-content: flex-end; }
+.spectre-row.assistant { justify-content: flex-start; }
+
+.spectre-bubble {
+  max-width: 80%;
+  border-radius: 14px;
+  padding: 8px 12px;
+  border: 1px solid var(--theia-editorWidget-border);
+  box-shadow: 0 1px 1px rgba(0,0,0,0.08);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+.spectre-bubble.user {
+  background: var(--theia-editorSuggestWidget-background);
+}
+.spectre-bubble.assistant {
+  background: var(--theia-input-background);
+}
+.spectre-meta {
+  font-size: 11px;
+  opacity: 0.6;
+  margin-bottom: 4px;
+  font-family: var(--theia-ui-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif);
+  font-weight: normal;
+}
+
+/* ============================================================================
+   INPUT AREA (Textarea and send button)
+   ============================================================================ */
+
+.spectre-input {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 8px;
+}
+
+.spectre-input .input-wrap {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--theia-editorWidget-border);
+  background: var(--theia-editorWidget-background);
+  border-radius: 18px;
+  padding: 6px 12px;
+  min-height: 90px; /* 1.5x previous height */
+  position: relative;
+  flex-direction: column;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.spectre-input .input-wrap:focus-within {
+  border-color: var(--theia-focusBorder, var(--theia-button-background));
+  box-shadow: 0 0 0 1px var(--theia-focusBorder, var(--theia-button-background));
+}
+.spectre-input textarea {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--theia-foreground);
+  resize: none;
+  max-height: 200px;
+  min-height: 48px;
+  line-height: 18px;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 4px 0 4px 0;
+}
+
+.spectre-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid var(--theia-editorWidget-border);
+  background: var(--theia-button-background);
+  color: var(--theia-button-foreground);
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+.spectre-icon-button:hover:not(:disabled) {
+  background: var(--theia-button-hoverBackground);
+  transform: translateY(-1px);
+}
+.spectre-icon-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+.spectre-send-large {
+  width: 50px;
+  height: 90px;
+  font-size: 18px;
+  line-height: 1;
+  align-self: stretch;
+  padding: 0;
+  border-radius: 18px;
+}
+
+/* ============================================================================
+   STATUS BAR (Inline quota display and controls)
+   ============================================================================ */
+
+/* Inline status bar inside input */
+.spectre-input-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 6px;
+  border-top: 1px solid var(--theia-editorWidget-border);
+  margin-top: 6px;
+}
+.spectre-status-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.spectre-chip.compact {
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: var(--theia-ui-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif);
+  font-weight: normal;
+}
+.spectre-inline-quota {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.spectre-inline-quota-text {
+  font-size: 11px;
+  opacity: 0.8;
+}
+.spectre-inline-send {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--theia-editorWidget-border);
+  background: var(--theia-button-background);
+  color: var(--theia-button-foreground);
+  cursor: pointer;
+  font-size: 18px;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+.spectre-inline-send:hover:not(:disabled) {
+  background: var(--theia-button-hoverBackground);
+  transform: scale(1.05);
+}
+.spectre-inline-send:active:not(:disabled) {
+  transform: scale(0.95);
+}
+.spectre-inline-send.spectre-stop { background: var(--theia-secondaryButton-background); color: var(--theia-secondaryButton-foreground); }
+.spectre-inline-send:disabled { opacity: .5; cursor: default; }
+.spectre-icon-button[disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.spectre-send { background: var(--theia-button-background); }
+.spectre-stop { background: var(--theia-secondaryButton-background); color: var(--theia-secondaryButton-foreground); }
+
+/* ============================================================================
+   MESSAGE CONTENT STYLING
+   ============================================================================ */
+
+/* Markdown content inside bubbles */
+.spectre-bubble pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: var(--theia-ui-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.spectre-bubble code {
+  font-family: var(--theia-code-font-family);
+}
+
+/* Agent Mode Message Styling */
+.spectre-bubble.assistant h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 12px 0 8px 0;
+  padding: 8px 12px;
+  background: var(--theia-editorWidget-background);
+  border-left: 3px solid var(--theia-button-background);
+  border-radius: 4px;
+  color: var(--theia-foreground);
+}
+
+.spectre-bubble.assistant hr {
+  margin: 16px 0;
+  border: none;
+  border-top: 1px solid var(--theia-editorWidget-border);
+  opacity: 0.5;
+}
+
+/* Function execution styling */
+.spectre-bubble.assistant code {
+  background: var(--theia-editorWidget-background);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+  color: var(--theia-textLink-foreground);
+  font-weight: 500;
+}
+
+.spectre-bubble.assistant em {
+  opacity: 0.8;
+  font-size: 12px;
+  color: var(--theia-descriptionForeground);
+}
+
+/* User message text styling */
+.spectre-user-text {
+  font-family: var(--theia-ui-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif);
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Loading indicator for assistant messages */
+.spectre-bubble.loading {
+  position: relative;
+}
+.spectre-bubble.loading::after {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--theia-foreground);
+  border-radius: 50%;
+  border-top-color: transparent;
+  animation: spin 1s linear infinite;
+  margin-left: 8px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================================================
+   ACCESSIBILITY & FOCUS STATES
+   ============================================================================ */
+
+/* Accessibility improvements */
+.spectre-tab:focus,
+.spectre-icon-button:focus,
+.spectre-inline-send:focus {
+  outline: 2px solid var(--theia-focusBorder);
+  outline-offset: 2px;
+}
+
+.spectre-input textarea:focus {
+  outline: none;
+  /* Remove the white border on focus - the input-wrap border provides visual feedback */
+}
+
+/* ============================================================================
+   ERROR & STATUS MESSAGES
+   ============================================================================ */
+
+/* Error message styling */
+.spectre-error-message {
+  background: var(--theia-errorBackground, rgba(244, 135, 113, 0.1));
+  border: 1px solid var(--theia-errorForeground, #f48771);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 8px;
+  color: var(--theia-errorForeground, #f48771);
+  font-size: 13px;
+}
+
+/* ============================================================================
+   CODE BLOCK COMPONENTS
+   ============================================================================ */
+
+/* Copy button styling */
+.spectre-copy-button {
+  background: var(--theia-button-background);
+  border: 1px solid var(--theia-button-border);
+  border-radius: 6px;
+  color: var(--theia-button-foreground);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 6px 10px;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: fit-content;
+  position: relative;
+}
+
+.spectre-copy-button:hover {
+  background: var(--theia-button-hoverBackground);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+}
+
+.spectre-copy-button:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.spectre-copy-button.copied {
+  background: #28a745 !important;
+  color: white !important;
+  transform: scale(0.95);
+}
+
+.spectre-copy-button .emoji {
+  font-size: 12px;
+}
+
+.spectre-copy-button .line-count {
+  font-size: 10px;
+  opacity: 0.7;
+  font-weight: normal;
+  margin-left: 2px;
+}
+
+/* Code block styling */
+.spectre-code-container {
+  position: relative;
+  margin: 12px 0;
+  border-radius: 8px;
+  border: 1px solid var(--theia-editorWidget-border);
+  background: var(--theia-editor-background);
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.spectre-code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--theia-editorGroupHeader-tabsBackground, var(--theia-tab-inactiveBackground));
+  border-bottom: 1px solid var(--theia-editorWidget-border);
+  font-size: 11px;
+  color: var(--theia-foreground);
+}
+
+.spectre-code-language {
+  font-weight: 500;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+.spectre-code-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.spectre-code-action-btn {
+  padding: 3px 6px;
+  font-size: 10px;
+  border: 1px solid var(--theia-button-border);
+  background: var(--theia-button-background);
+  color: var(--theia-button-foreground);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: fit-content;
+}
+
+.spectre-code-action-btn:hover {
+  background: var(--theia-button-hoverBackground);
+  transform: translateY(-1px);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+}
+
+.spectre-code-action-btn:active {
+  transform: translateY(0);
+}
+
+.spectre-code-action-btn.success {
+  background: #28a745 !important;
+  color: white !important;
+  border-color: #28a745 !important;
+}
+
+.spectre-code-content {
+  padding: 12px;
+  background: var(--theia-editor-background);
+  overflow-x: auto;
+}
+
+.spectre-code-content pre {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  font-family: var(--theia-code-font-family, 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace);
+  font-size: var(--theia-code-font-size, 13px);
+  line-height: 1.4;
+  color: var(--theia-editor-foreground);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.spectre-code-content code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* ============================================================================
+   RESPONSIVE & THEME SUPPORT
+   ============================================================================ */
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .spectre-bubble {
+    border-width: 2px;
+  }
+  .spectre-chip {
+    border-width: 2px;
+  }
+  .spectre-copy-button {
+    border-width: 2px;
+  }
+}
+
+/* ============================================================================
+   AGENT MODE - TASK TRACKING PANEL
+   ============================================================================ */
+
+/* GitHub Copilot-style task list */
+.spectre-task-list {
+  position: sticky;
+  top: 4px;
+  z-index: 100;
+  margin: 4px 8px 0 8px;
+  padding: 6px 8px;
+  background: var(--theia-editorWidget-background);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--theia-editorWidget-border);
+  border-radius: 10px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  max-height: 150px;
+  overflow-y: auto;
+  transition: all 0.2s ease;
+}
+
+.spectre-task-list:empty {
+  display: none;
+}
+
+.spectre-task-header {
+  font-size: 10.5px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--theia-foreground);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  opacity: 0.8;
+  padding: 0;
+  transition: opacity 0.15s ease;
+}
+
+.spectre-task-header-left:hover {
+  opacity: 1;
+}
+
+.spectre-task-close {
+  transition: opacity 0.15s ease, transform 0.1s ease;
+  font-size: 14px;
+}
+
+.spectre-task-close:hover {
+  opacity: 1 !important;
+  transform: scale(1.1);
+}
+
+.spectre-task-toggle {
+  font-size: 10px;
+  color: var(--theia-foreground);
+  opacity: 0.6;
+  transition: transform 0.2s ease;
+  display: inline-block;
+  min-width: 12px;
+}
+
+.spectre-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  margin: 4px 0;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  transition: background-color 0.15s ease;
+}
+
+.spectre-task:hover {
+  background: var(--theia-list-hoverBackground);
+}
+
+.spectre-task-icon {
+  font-size: 14px;
+  min-width: 18px;
+  text-align: center;
+  padding-top: 1px;
+}
+
+.spectre-task-description {
+  flex: 1;
+  color: var(--theia-foreground);
+}
+
+/* Task status styles */
+.spectre-task.task-pending {
+  opacity: 0.7;
+}
+
+.spectre-task.task-pending .spectre-task-icon {
+  color: var(--theia-foreground);
+  opacity: 0.5;
+}
+
+.spectre-task.task-in-progress {
+  background: var(--theia-list-activeSelectionBackground, rgba(75, 110, 175, 0.15));
+  font-weight: 500;
+}
+
+.spectre-task.task-in-progress .spectre-task-icon {
+  color: var(--theia-button-background);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.spectre-task.task-completed .spectre-task-icon {
+  color: #28a745;
+}
+
+.spectre-task.task-failed {
+  background: var(--theia-errorBackground, rgba(244, 135, 113, 0.1));
+}
+
+.spectre-task.task-failed .spectre-task-icon {
+  color: var(--theia-errorForeground, #f48771);
+}
+
+.spectre-task-error {
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: var(--theia-errorBackground, rgba(244, 135, 113, 0.15));
+  border-left: 2px solid var(--theia-errorForeground, #f48771);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--theia-errorForeground, #f48771);
+  font-family: var(--theia-code-font-family, monospace);
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.1);
+  }
+}
+
+/* High contrast for tasks */
+@media (prefers-contrast: high) {
+  .spectre-task {
+    border: 1px solid var(--theia-editorWidget-border);
+  }
+  .spectre-task.task-in-progress {
+    border-width: 2px;
+    border-color: var(--theia-button-background);
+  }
+  .spectre-task.task-completed {
+    border-color: #28a745;
+  }
+  .spectre-task.task-failed {
+    border-color: var(--theia-errorForeground, #f48771);
+  }
+}
+
+/* ============================================================================
+   MONACO EDITOR DIFF DECORATIONS (Inline diff highlighting)
+   ============================================================================ */
+
+/* Inline diff decorations for Monaco editor */
+.spectre-diff-line-added {
+  background: rgba(40, 167, 69, 0.2) !important;
+  border-left: 3px solid #28a745 !important;
+}
+
+.spectre-diff-line-removed {
+  background: rgba(215, 58, 73, 0.2) !important;
+  border-left: 3px solid #d73a49 !important;
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.spectre-diff-glyph-add {
+  background: #28a745 !important;
+  width: 5px !important;
+  margin-left: 3px;
+}
+
+.spectre-diff-glyph-remove {
+  background: #d73a49 !important;
+  width: 5px !important;
+  margin-left: 3px;
+}
+
+/* ============================================================================
+   CODE DIFF VIEW - Shows changes between old and new code
+   ============================================================================ */
+
+.spectre-diff-container {
+  margin: 12px 8px;
+  border: 1px solid var(--theia-editorWidget-border);
+  border-radius: 8px;
+  background: var(--theia-editor-background);
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.spectre-diff-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--theia-editorGroupHeader-tabsBackground, var(--theia-tab-inactiveBackground));
+  border-bottom: 1px solid var(--theia-editorWidget-border);
+}
+
+.spectre-diff-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--theia-foreground);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.spectre-diff-toggle {
+  padding: 4px 10px;
+  font-size: 11px;
+  border: 1px solid var(--theia-button-border);
+  background: var(--theia-button-background);
+  color: var(--theia-button-foreground);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.spectre-diff-toggle:hover {
+  background: var(--theia-button-hoverBackground);
+  transform: translateY(-1px);
+}
+
+.spectre-diff-toggle:active {
+  transform: translateY(0);
+}
+
+.spectre-diff-content {
+  padding: 12px;
+  background: var(--theia-editor-background);
+}
+
+.spectre-diff-stats {
+  display: flex;
+  gap: 12px;
+  padding: 6px 10px;
+  margin-bottom: 10px;
+  background: var(--theia-editorWidget-background);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.spectre-diff-stat-add {
+  color: #28a745;
+}
+
+.spectre-diff-stat-remove {
+  color: #d73a49;
+}
+
+.spectre-diff-lines {
+  font-family: var(--theia-code-font-family, 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace);
+  font-size: var(--theia-code-font-size, 12px);
+  line-height: 1.5;
+  border: 1px solid var(--theia-editorWidget-border);
+  border-radius: 6px;
+  overflow-x: auto;
+  background: var(--theia-editor-background);
+}
+
+.spectre-diff-line {
+  display: flex;
+  align-items: stretch;
+  min-height: 20px;
+  transition: background-color 0.1s ease;
+}
+
+.spectre-diff-line:hover {
+  background: var(--theia-list-hoverBackground);
+}
+
+.spectre-diff-line-num {
+  display: inline-block;
+  min-width: 36px;
+  padding: 2px 8px;
+  text-align: right;
+  color: var(--theia-editorLineNumber-foreground);
+  opacity: 0.6;
+  user-select: none;
+  border-right: 1px solid var(--theia-editorWidget-border);
+  background: var(--theia-editorWidget-background);
+  font-size: 11px;
+}
+
+.spectre-diff-line-marker {
+  display: inline-block;
+  width: 24px;
+  padding: 2px 0;
+  text-align: center;
+  font-weight: 600;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.spectre-diff-line-content {
+  flex: 1;
+  padding: 2px 8px;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+/* Line type styling */
+.spectre-diff-line-add {
+  background: rgba(40, 167, 69, 0.15);
+}
+
+.spectre-diff-line-add .spectre-diff-line-marker {
+  color: #28a745;
+  background: rgba(40, 167, 69, 0.2);
+}
+
+.spectre-diff-line-add .spectre-diff-line-content {
+  background: rgba(40, 167, 69, 0.1);
+}
+
+.spectre-diff-line-remove {
+  background: rgba(215, 58, 73, 0.15);
+}
+
+.spectre-diff-line-remove .spectre-diff-line-marker {
+  color: #d73a49;
+  background: rgba(215, 58, 73, 0.2);
+}
+
+.spectre-diff-line-remove .spectre-diff-line-content {
+  background: rgba(215, 58, 73, 0.1);
+  text-decoration: line-through;
+  opacity: 0.8;
+}
+
+.spectre-diff-line-context {
+  background: transparent;
+}
+
+.spectre-diff-line-context .spectre-diff-line-marker {
+  color: var(--theia-foreground);
+  opacity: 0.3;
+}
+
+.spectre-diff-line-context .spectre-diff-line-content {
+  opacity: 0.7;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .spectre-diff-line-add {
+    border-left: 3px solid #28a745;
+    background: rgba(40, 167, 69, 0.2);
+  }
+  
+  .spectre-diff-line-remove {
+    border-left: 3px solid #d73a49;
+    background: rgba(215, 58, 73, 0.2);
+  }
+  
+  .spectre-diff-container {
+    border-width: 2px;
+  }
+}
+
+/* ============================================================================
+   MEMORY STATS FOOTER
+   ============================================================================ */
+
+.spectre-memory-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  margin-top: 4px;
+  font-size: 11px;
+  border-top: 1px solid var(--theia-editorWidget-border);
+  background: var(--theia-editorWidget-background);
+  color: var(--theia-descriptionForeground);
+  transition: all 0.2s ease;
+}
+
+.spectre-memory-footer .memory-icon {
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.spectre-memory-footer .memory-text {
+  flex: 1;
+  font-family: var(--theia-ui-font-family);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spectre-memory-footer .memory-status {
+  font-size: 10px;
+  opacity: 0.7;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Color coding based on memory usage */
+.spectre-memory-footer.memory-ok {
+  border-left: 3px solid var(--theia-gitDecoration-addedResourceForeground, #28a745);
+}
+
+.spectre-memory-footer.memory-medium {
+  border-left: 3px solid var(--theia-warningForeground, #ffa500);
+}
+
+.spectre-memory-footer.memory-high {
+  border-left: 3px solid var(--theia-errorForeground, #f48771);
+}
+
+/* Pulse animation for summarizing indicator */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .spectre-memory-footer {
+    border-top-width: 2px;
+  }
+  
+  .spectre-memory-footer.memory-ok {
+    border-left-width: 4px;
+  }
+  
+  .spectre-memory-footer.memory-medium {
+    border-left-width: 4px;
+  }
+  
+  .spectre-memory-footer.memory-high {
+    border-left-width: 4px;
+  }
+}

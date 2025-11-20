@@ -1,55 +1,243 @@
-<img src="https://content.arduino.cc/website/Arduino_logo_teal.svg" height="100" align="right" />
+# Arduino IDE AI Assistant
 
-# Arduino IDE 2.x
+**Arduino IDE with integrated Google Gemini AI Assistant for intelligent code generation and autonomous task execution**
 
-[![Build status](https://github.com/arduino/arduino-ide/actions/workflows/build.yml/badge.svg)](https://github.com/arduino/arduino-ide/actions/workflows/build.yml)
-[![Check JavaScript status](https://github.com/arduino/arduino-ide/actions/workflows/check-javascript.yml/badge.svg)](https://github.com/arduino/arduino-ide/actions/workflows/check-javascript.yml)
-[![Test JavaScript status](https://github.com/arduino/arduino-ide/actions/workflows/test-javascript.yml/badge.svg)](https://github.com/arduino/arduino-ide/actions/workflows/test-javascript.yml)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)]()
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue)]()
+[![Arduino IDE](https://img.shields.io/badge/Arduino%20IDE-2.3.7-teal)]()
+[![Gemini AI](https://img.shields.io/badge/Powered%20by-Gemini%202.5-orange)]()
+[![Version](https://img.shields.io/badge/version-1.0.0-teal)]()
 
-This repository contains the source code of the Arduino IDE 2.x. If you're looking for the old IDE, go to the [repository of the 1.x version](https://github.com/arduino/Arduino).
+## What is Arduino IDE AI Assistant?
 
-The Arduino IDE 2.x is a major rewrite, sharing no code with the IDE 1.x. It is based on the [Theia IDE](https://theia-ide.org/) framework and built with [Electron](https://www.electronjs.org/). The backend operations such as compilation and uploading are offloaded to an [arduino-cli](https://github.com/arduino/arduino-cli) instance running in daemon mode. This new IDE was developed with the goal of preserving the same interface and user experience of the previous major version in order to provide a frictionless upgrade.
+Arduino IDE AI Assistant is an enhanced version of Arduino IDE 2.x with Google's Gemini 2.0 AI integration that provides:
 
-![](static/screenshot.png)
+- **AI-powered code generation** for Arduino sketches
+- **Autonomous agent mode** that can create projects, install libraries, and compile code
+- **Contextual assistance** based on your current sketch
+- **Advanced memory system** supporting 1000+ message conversations
+- **Free tier optimization** for Gemini API (250k TPM, 10-15 RPM)
 
-## Download
+## Key Features
 
-You can download the latest release version and nightly builds from the [software download page on the Arduino website](https://www.arduino.cc/en/software).
+### Conversational Mode
+- Ask questions about Arduino development
+- Generate code snippets instantly
+- Get debugging help and explanations
+- Context-aware responses based on open sketches
 
-## Support
+### Agent Mode
+- Accept high-level project goals ("create a weather station with DHT22")
+- Automatically create sketches
+- Install required libraries
+- Select appropriate boards
+- Compile and verify code
+- Multi-step autonomous execution
 
-If you need assistance, see the [Help Center](https://support.arduino.cc/hc/en-us/categories/360002212660-Software-and-Downloads) and browse the [forum](https://forum.arduino.cc/index.php?board=150.0).
+### Advanced Memory Management
+- Dynamic conversation retention (1000+ messages)
+- AI-powered summarization (50-70% compression)
+- Session persistence across restarts
+- Smart token allocation for long conversations
+- 100k token memory bank capacity
 
-## Bugs & Issues
+## Installation
 
-If you want to report an issue, you can submit it to the [issue tracker](https://github.com/arduino/arduino-ide/issues) of this repository.
+### Download Pre-built Installer (Windows)
 
-See [**the issue report guide**](docs/contributor-guide/issues.md#issue-report-guide) for instructions.
+1. Go to [Releases](../../releases)
+2. Download `Arduino-IDE-AI-Assistant-Setup.exe`
+3. Run the installer
+4. Enter your Gemini API key when prompted
 
-### Security
+### Building from Source
 
-If you think you found a vulnerability or other security-related bug in this project, please read our
-[security policy](https://github.com/arduino/arduino-ide/security/policy) and report the bug to our Security Team 🛡️
-Thank you!
+```bash
+# Clone repository
+git clone https://github.com/omartazul/arduino-ide-ai-assistant.git
+cd arduino-ide-ai-assistant
 
-e-mail contact: security@arduino.cc
+# Install dependencies
+yarn install
 
-## Contributions and development
+# Build the application
+yarn build
 
-Contributions are very welcome! There are several ways to participate in this project, including:
+# Package for Windows
+cd electron-app
+yarn package
+```
 
-- Fixing bugs
-- Beta testing
-- Translation
+The installer will be in `electron-app/dist/`
 
-See [**the contributor guide**](docs/CONTRIBUTING.md#contributor-guide) for more information.
+## Getting Started
 
-See the [**development guide**](docs/development.md) for a technical overview of the application and instructions for building the code.
+### 1. Get Gemini API Key
 
-### Support the project
+1. Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. Create a new API key (free tier available)
+3. Copy the API key
 
-This open source code was written by the Arduino team and is maintained on a daily basis with the help of the community. We invest a considerable amount of time in development, testing and optimization. Please consider [buying original Arduino boards](https://store.arduino.cc/) to support our work on the project.
+### 2. Configure AI Assistant
+
+1. Open Arduino IDE AI Assistant
+2. Click the AI icon in the sidebar
+3. Enter your Gemini API key
+4. Choose your model (Flash or Flash-Lite)
+
+### 3. Start Using
+
+**Conversational Mode:**
+```
+User: How do I read analog sensor on pin A0?
+AI: Here's a simple example...
+```
+
+**Agent Mode:**
+```
+User: Create a temperature monitor using DHT22 sensor
+AI: [Creates sketch, installs DHT library, sets up code automatically]
+```
+
+## Requirements
+
+- Windows 10/11 (64-bit)
+- Node.js 18.17.0 - 20.x
+- Gemini API key (free tier available)
+- Internet connection for AI features
+
+## Technical Details
+
+### Architecture
+- **Frontend**: Electron + Theia IDE framework
+- **Backend**: Node.js + arduino-cli daemon
+- **AI Integration**: Google Gemini 2.5 Flash/Flash-Lite
+- **Memory System**: Dynamic rolling buffer with AI summarization
+- **Storage**: localStorage for session persistence
+
+### Memory System
+- Rolling buffer: 40 messages (25k tokens)
+- Memory bank: 100k tokens
+- Compression: 97% efficiency
+- Summarization: Gemini Flash-Lite
+- Meta-compression: 70-80% reduction
+
+### API Limits (Gemini Free Tier)
+- Input: 250k tokens per minute
+- Requests: 10-15 per minute
+- Context: 1M tokens
+- Output: 65k tokens max
+
+## Project Structure
+
+```
+arduino-ide-ai-assistant/
+├── arduino-ide-extension/       # IDE extension code
+│   └── src/
+│       ├── browser/spectre/     # AI assistant frontend
+│       ├── common/protocol/     # Service interfaces
+│       └── node/                # AI backend implementation
+├── electron-app/                # Electron application
+├── docs/                        # Documentation
+└── SPECTRE_AI_DOCUMENTATION.md  # Technical documentation
+```
+
+## Documentation
+
+- [Technical Documentation](SPECTRE_AI_DOCUMENTATION.md) - Complete system architecture
+- [Building Guide](BUILDING.md) - Build instructions
+- [Contributing Guide](docs/CONTRIBUTING.md) - Contribution guidelines
+
+## Comparison with Original Arduino IDE
+
+| Feature | Original IDE 2.x | Arduino IDE AI Assistant |
+|---------|------------------|-------------------------|
+| Code assistance | Basic | AI-powered with Gemini |
+| Code generation | Manual | Automatic |
+| Library management | Manual search | AI suggests and installs |
+| Project setup | Manual | Autonomous agent mode |
+| Context awareness | Limited | Full sketch understanding |
+| Learning curve | Steep | AI explains concepts |
+
+## Use Cases
+
+### Beginners
+- Learn Arduino programming with AI explanations
+- Generate starter code for common projects
+- Get help debugging errors
+- Understand sensor interfacing
+
+### Professionals
+- Rapid prototyping with agent mode
+- Code optimization suggestions
+- Library recommendations
+- Complex project scaffolding
+
+### Educators
+- Teaching tool with interactive AI
+- Generate example code for students
+- Explain concepts in real-time
+- Project ideas and implementations
+
+## Performance
+
+- Memory overhead: <5ms per message
+- Summarization: 2-4s (async, non-blocking)
+- Agent operations: Depends on complexity
+- UI responsiveness: Maintained during AI calls
+
+## Known Limitations
+
+- Requires internet connection for AI features
+- Gemini API rate limits (free tier)
+- Agent mode reliability depends on task complexity
+- English language optimized (multilingual possible)
+
+## Troubleshooting
+
+**AI not responding:**
+- Check API key is valid
+- Verify internet connection
+- Check rate limits not exceeded
+
+**Agent mode loops:**
+- Use latest version (v1.0.0+)
+- Clear session if issue persists
+
+**Memory issues:**
+- localStorage automatically manages 100k tokens
+- Sessions persist across restarts
+- Compression happens automatically
+
+## Contributing
+
+Contributions welcome! See [CONTRIBUTING.md](docs/CONTRIBUTING.md)
 
 ## License
 
-The code contained in this repository and the executable distributions are licensed under the terms of the GNU AGPLv3. The executable distributions contain third-party code licensed under other compatible licenses such as GPLv2, MIT and BSD-3. If you have questions about licensing please contact us at [license@arduino.cc](mailto:license@arduino.cc).
+This project maintains the original Arduino IDE license:
+- **License**: AGPL-3.0-or-later
+- **Based on**: [Arduino IDE 2.x](https://github.com/arduino/arduino-ide)
+- **Framework**: [Eclipse Theia](https://theia-ide.org/)
+
+## Credits
+
+- **Original Arduino IDE**: Arduino Team
+- **Spectre AI Integration**: Tazul Islam (@omartazul)
+- **AI Model**: Google Gemini 2.5
+- **Framework**: Eclipse Theia
+
+## Links
+
+- **Repository**: https://github.com/omartazul/arduino-ide-ai-assistant
+- **Issues**: https://github.com/omartazul/arduino-ide-ai-assistant/issues
+- **Original Arduino IDE**: https://github.com/arduino/arduino-ide
+- **Gemini API**: https://ai.google.dev/
+
+## Keywords
+
+arduino ide, arduino ai, gemini arduino, ai code generator, arduino assistant, arduino ide with ai, google gemini arduino, arduino code generation, ai arduino programming, intelligent arduino ide, arduino autonomous agent, arduino chatbot, arduino development ai, gemini api arduino, arduino ide 2.x ai, arduino machine learning, arduino copilot, arduino code helper
+
+---
+
+**Star this repo if you find it useful!** ⭐

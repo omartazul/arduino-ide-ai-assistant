@@ -67,6 +67,10 @@ export interface Settings {
   sketchbookPath: string; // CLI
   additionalUrls: AdditionalUrls; // CLI
   network: Network; // CLI
+
+  // Spectre AI
+  spectreModel: 'gemini-2.5-flash' | 'gemini-2.5-flash-lite';
+  spectreMode: 'basic' | 'agent';
 }
 export namespace Settings {
   export function belongsToCli<K extends keyof Settings>(key: K): boolean {
@@ -152,6 +156,9 @@ export class SettingsService {
       verboseOnUpload,
       verifyAfterUpload,
       sketchbookShowAllFiles,
+      // Spectre AI settings
+      spectreModel,
+      spectreMode,
       cliConfig,
     ] = await Promise.all([
       ['en', ...(await this.localizationProvider.getAvailableLanguages())],
@@ -181,6 +188,15 @@ export class SettingsService {
       this.preferenceService.get<boolean>(UPLOAD_VERBOSE_SETTING, true),
       this.preferenceService.get<boolean>(UPLOAD_VERIFY_SETTING, true),
       this.preferenceService.get<boolean>(SHOW_ALL_FILES_SETTING, false),
+      // Spectre AI settings
+      this.preferenceService.get<'gemini-2.5-flash' | 'gemini-2.5-flash-lite'>(
+        'arduino.spectre.model',
+        'gemini-2.5-flash'
+      ),
+      this.preferenceService.get<'basic' | 'agent'>(
+        'arduino.spectre.mode',
+        'basic'
+      ),
       this.configService.getConfiguration(),
     ]);
     const {
@@ -210,6 +226,9 @@ export class SettingsService {
       additionalUrls,
       sketchbookPath,
       network,
+      // Spectre AI settings
+      spectreModel,
+      spectreMode,
     };
   }
 
@@ -297,6 +316,9 @@ export class SettingsService {
       additionalUrls,
       network,
       sketchbookShowAllFiles,
+      // Spectre AI settings
+      spectreModel,
+      spectreMode,
     } = this._settings;
     const [cliConfig, sketchDirUri] = await Promise.all([
       this.configService.getConfiguration(),
@@ -328,6 +350,9 @@ export class SettingsService {
       this.savePreference(UPLOAD_VERBOSE_SETTING, verboseOnUpload),
       this.savePreference(UPLOAD_VERIFY_SETTING, verifyAfterUpload),
       this.savePreference(SHOW_ALL_FILES_SETTING, sketchbookShowAllFiles),
+      // Spectre AI preferences
+      this.savePreference('arduino.spectre.model', spectreModel),
+      this.savePreference('arduino.spectre.mode', spectreMode),
       this.configService.setConfiguration(config),
     ]);
     this.onDidChangeEmitter.fire(this._settings);

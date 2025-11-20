@@ -1,4 +1,4 @@
-import { JsonRpcServer } from '@theia/core/lib/common/messaging/proxy-factory';
+import { RpcServer } from '@theia/core/lib/common/messaging/proxy-factory';
 export const authServerPort = 9876;
 
 export interface AuthOptions {
@@ -27,7 +27,7 @@ export interface AuthenticationSessionAccountInformation {
 export const AuthenticationServicePath = '/services/authentication-service';
 export const AuthenticationService = Symbol('AuthenticationService');
 export interface AuthenticationService
-  extends JsonRpcServer<AuthenticationServiceClient> {
+  extends RpcServer<AuthenticationServiceClient> {
   login(): Promise<AuthenticationSession>;
   logout(): Promise<void>;
   session(): Promise<AuthenticationSession | undefined>;

@@ -1,7 +1,19 @@
 import '../../src/browser/style/index.css';
+import {
+  SpectreSecretsService,
+  SpectreSecretsServicePath,
+} from '../common/protocol/spectre-secrets-service';
+import {
+  SpectreAiService,
+  SpectreAiServicePath,
+} from '../common/protocol/spectre-ai-service';
+import { SpectreAiFrontendClient } from './spectre/spectre-ai-frontend-client';
+import { SpectreSecretsFrontendClient } from './spectre/spectre-secrets-frontend-client';
+import { MemoryManager } from './spectre/memory-manager';
 import { Container, ContainerModule } from '@theia/core/shared/inversify';
 import { WidgetFactory } from '@theia/core/lib/browser/widget-manager';
 import { CommandContribution } from '@theia/core/lib/common/command';
+import { KeybindingContribution } from '@theia/core/lib/browser/keybinding';
 import { bindViewContribution } from '@theia/core/lib/browser/shell/view-contribution';
 import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 import { WebSocketConnectionProvider } from '@theia/core/lib/browser/messaging/ws-connection-provider';
@@ -374,6 +386,8 @@ import {
 } from './dialogs/version-welcome-dialog';
 import { TestViewContribution as TheiaTestViewContribution } from '@theia/test/lib/browser/view/test-view-contribution';
 import { TestViewContribution } from './theia/test/test-view-contribution';
+import { SpectreViewContribution } from './spectre/spectre-view-contribution';
+import { SpectreWidget } from './spectre/spectre-widget';
 
 // Hack to fix copy/cut/paste issue after electron version update in Theia.
 // https://github.com/eclipse-theia/theia/issues/12487
@@ -540,6 +554,19 @@ export default new ContainerModule((bind, unbind, isBound, rebind) => {
       )
     )
     .inSingletonScope();
+
+    // Spectre AI widget (commands/keybindings enabled, menu bar entry disabled)
+    bind(SpectreViewContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(SpectreViewContribution); // Commands (Ctrl+Shift+P)
+    bind(KeybindingContribution).toService(SpectreViewContribution); // Keyboard shortcuts
+    // bind(MenuContribution).toService(SpectreViewContribution);        // Disabled: No menu bar entry
+    bind(TabBarToolbarContribution).toService(SpectreViewContribution); // Tab toolbar buttons
+    bind(FrontendApplicationContribution).toService(SpectreViewContribution);
+    bind(WidgetFactory).toDynamicValue((context) => ({
+      id: SpectreWidget.ID,
+      createWidget: () => context.container.get(SpectreWidget),
+    }));
+    bind(SpectreWidget).toSelf().inSingletonScope();
 
   // Monitor manager proxy client to receive and delegate pluggable monitors
   // notifications from the backend
@@ -1019,6 +1046,35 @@ export default new ContainerModule((bind, unbind, isBound, rebind) => {
   rebind(TheiaHostedPluginSupport).toService(HostedPluginSupportImpl);
   bind(HostedPluginEvents).toSelf().inSingletonScope();
   bind(FrontendApplicationContribution).toService(HostedPluginEvents);
+
+  // Frontend proxy for Spectre secrets service with client callbacks for status updates
+  bind(SpectreSecretsFrontendClient).toSelf().inSingletonScope();
+  bind(SpectreSecretsService)
+    .toDynamicValue((context) => {
+      const client = context.container.get(SpectreSecretsFrontendClient);
+      return WebSocketConnectionProvider.createProxy(
+        context.container,
+        SpectreSecretsServicePath,
+        client
+      );
+    })
+    .inSingletonScope();
+
+  // Frontend proxy + client for Spectre AI service with streaming callbacks
+  bind(SpectreAiFrontendClient).toSelf().inSingletonScope();
+  bind(SpectreAiService)
+    .toDynamicValue((context) => {
+      const client = context.container.get(SpectreAiFrontendClient);
+      return WebSocketConnectionProvider.createProxy(
+        context.container,
+        SpectreAiServicePath,
+        client // Client automatically registered by Theia framework
+      );
+    })
+    .inSingletonScope();
+
+  // Memory Manager for Spectre AI conversation history
+  bind(MemoryManager).toSelf().inSingletonScope();
 
   // custom window titles
   bind(WindowTitleUpdater).toSelf().inSingletonScope();
