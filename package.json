@@ -1,6 +1,6 @@
 {
   "name": "arduino-ide-ai-assistant",
-  "version": "1.0.0",
+  "version": "3.3.7",
   "description": "Arduino IDE AI Assistant - Arduino IDE with Google Gemini AI Integration",
   "repository": "https://github.com/omartazul/arduino-ide-ai-assistant.git",
   "author": "omartazul",

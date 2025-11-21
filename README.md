@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)]()
 [![Arduino IDE](https://img.shields.io/badge/Arduino%20IDE-2.3.7-teal)]()
 [![Gemini AI](https://img.shields.io/badge/Powered%20by-Gemini%202.5-orange)]()
-[![Version](https://img.shields.io/badge/version-1.0.0-teal)]()
+[![Version](https://img.shields.io/badge/version-3.3.7-teal)]()
 
 ## What is Arduino IDE AI Assistant?
 
@@ -201,7 +201,7 @@ arduino-ide-ai-assistant/
 - Check rate limits not exceeded
 
 **Agent mode loops:**
-- Use latest version (v1.0.0+)
+- Use latest version (v3.3.7+)
 - Clear session if issue persists
 
 **Memory issues:**

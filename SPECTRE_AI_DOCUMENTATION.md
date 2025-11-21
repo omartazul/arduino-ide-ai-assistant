@@ -1,6 +1,6 @@
 # Spectre AI — Complete Documentation
 
-**Version:** 1.0.0
+**Version:** 3.3.7
 **Date:** November 20, 2025
 **Status:** Production
 
@@ -212,7 +212,7 @@ A: Agents have loop guards; add idempotency to steps and ensure continuation ins
 
 ## 13. Changelog & versioning
 
-Release v1.0.0 highlights:
+Release v3.3.7 highlights:
 - Memory bank capacity increased to 100k tokens
 - First-level summaries extended to 2048 tokens
 - Flash-Lite improved budgeting options

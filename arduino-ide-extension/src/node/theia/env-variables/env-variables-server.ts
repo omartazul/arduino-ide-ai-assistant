@@ -11,7 +11,10 @@ import {
   injectable,
   postConstruct,
 } from '@theia/core/shared/inversify';
-import { list as listDrives } from 'drivelist';
+// drivelist is a native module which requires compiled binaries matching the current
+// Node/Electron runtime. Requiring it at module top-level can crash tests or CI if
+// the binary doesn't match. Load it lazily (and fall back to an empty list) so
+// unit tests and environments without the native binary don't fail.
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -50,6 +53,31 @@ export class EnvVariablesServer implements TheiaEnvVariablesServer {
     });
   }
 
+  // Lazy-loaded drivelist list function. If drivelist can't be required, we
+  // fall back to an async function that returns an empty array so callers still
+  // receive a Promise and tests won't fail due to native binary issues.
+  private _drivelistList: (() => Promise<any[]>) | undefined;
+
+  private getDrivelistList(): () => Promise<any[]> {
+    if (!this._drivelistList) {
+      try {
+        // Use require() because drivelist is CommonJS and may contain native
+        // bindings; require is safe at runtime and can be wrapped in try/catch.
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const drivelist = require('drivelist');
+        this._drivelistList = drivelist.list.bind(drivelist);
+      }
+      catch (err) {
+        // If the native bindings failed to load, log a warning and fall back so
+        // tests and non-native environments behave gracefully.
+        // eslint-disable-next-line no-console
+        console.warn('drivelist not available; getDrives() will return empty list', err);
+        this._drivelistList = async () => [];
+      }
+    }
+    return this._drivelistList!;
+  }
+
   @postConstruct()
   protected init(): void {
     console.log(
@@ -84,7 +112,8 @@ export class EnvVariablesServer implements TheiaEnvVariablesServer {
 
   async getDrives(): Promise<string[]> {
     const uris: string[] = [];
-    const drives = await listDrives();
+    const listFn = this.getDrivelistList();
+    const drives = await listFn();
     for (const drive of drives) {
       for (const mountpoint of drive.mountpoints) {
         if (this.filterHiddenPartitions(mountpoint.path)) {

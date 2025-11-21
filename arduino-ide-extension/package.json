@@ -1,6 +1,6 @@
 {
   "name": "arduino-ide-extension",
-  "version": "1.0.0",
+  "version": "3.3.7",
   "description": "Arduino IDE AI Assistant extension",
   "license": "AGPL-3.0-or-later",
   "scripts": {
