@@ -18,6 +18,29 @@ Arduino IDE AI Assistant is an enhanced version of Arduino IDE 2.x with Google's
 - **Advanced memory system** supporting 1000+ message conversations
 - **Free tier optimization** for Gemini API (250k TPM, 10-15 RPM)
 
+## Screenshots 📸
+
+Below are screenshots from the running Arduino IDE AI Assistant UI (left: AI / Spectre chat, right: editor + output). These images are stored in the `static/` folder and shown here for quick reference.
+
+- Main UI (compact view)
+![Main UI compact](static/screenshot-ai-1.png)
+
+- Chat + generated sketch view
+![Chat and sketch editing](static/screenshot-ai-2.png)
+
+- Board selected, verification output (build output panel)
+![Board selected and verification output](static/screenshot-ai-3.png)
+
+- Sketch verified with output showing memory/use statistics
+![Verified sketch output](static/screenshot-ai-4.png)
+
+- Sketch with Bengali comments added by the AI assistant
+![Sketch with Bengali comments (1)](static/screenshot-ai-5.png)
+
+- Bengali comments continued / final sketch view
+![Sketch with Bengali comments (2)](static/screenshot-ai-6.png)
+
+
 ## Key Features
 
 ### Conversational Mode
