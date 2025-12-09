@@ -308,7 +308,6 @@ ${conversationText}
   private async compressMemoryBank(memory: ConversationMemory): Promise<void> {
     const { memoryBank } = memory;
 
-    // Need at least 3 summaries to compress (keep recent, compress old)
     if (memoryBank.summaries.length < 3) {
       return;
     }
@@ -318,17 +317,77 @@ ${conversationText}
     );
 
     try {
-      // STRATEGY: Keep most recent summary intact, compress older ones
-      const recentSummary =
-        memoryBank.summaries[memoryBank.summaries.length - 1];
-      const oldSummaries = memoryBank.summaries.slice(0, -1);
+      const { recentSummary, oldSummaries } = this.splitSummariesForCompression(memoryBank);
+      const compressedSummary = await this.generateCompressedSummary(oldSummaries);
 
-      const combinedText = oldSummaries
-        .map((s, idx) => `[Conversation Block ${idx + 1}]:\n${s.summary}`)
-        .join('\n\n');
+      if (compressedSummary) {
+        this.updateMemoryBankWithCompression(
+          memoryBank,
+          compressedSummary,
+          recentSummary,
+          oldSummaries
+        );
+      }
+    } catch (error) {
+      spectreError('Memory bank compression failed:', error);
+    }
+  }
 
-      // Enhanced meta-summarization prompt
-      const compressionPrompt = `You are compressing long-term memory for an Arduino development assistant. The user has had an extended conversation with multiple topics.
+  /**
+   * Splits summaries into recent (to keep) and old (to compress).
+   */
+  private splitSummariesForCompression(memoryBank: ConversationMemory['memoryBank']): {
+    recentSummary: SummaryEntry;
+    oldSummaries: SummaryEntry[];
+  } {
+    const recentSummary = memoryBank.summaries[memoryBank.summaries.length - 1];
+    const oldSummaries = memoryBank.summaries.slice(0, -1);
+    return { recentSummary, oldSummaries };
+  }
+
+  /**
+   * Generates a compressed summary from multiple old summaries.
+   */
+  private async generateCompressedSummary(
+    oldSummaries: SummaryEntry[]
+  ): Promise<SummaryEntry | null> {
+    const combinedText = oldSummaries
+      .map((s, idx) => `[Conversation Block ${idx + 1}]:\n${s.summary}`)
+      .join('\n\n');
+
+    const compressionPrompt = this.buildCompressionPrompt(combinedText);
+
+    const response = await this.aiService.generate({
+      prompt: compressionPrompt,
+      model: 'gemini-2.5-flash',
+      generationConfig: {
+        maxOutputTokens: 4096,
+        temperature: 0.1,
+      },
+      abortKey: `compress-${Date.now()}`,
+    });
+
+    if (!response.text || response.text.trim() === '') {
+      return null;
+    }
+
+    return withTokenCount(
+      {
+        id: `compressed-${Date.now()}`,
+        summary: response.text.trim(),
+        originalMessageIds: oldSummaries.flatMap((s) => s.originalMessageIds),
+        createdAt: Date.now(),
+        category: 'general' as const,
+      },
+      'natural'
+    );
+  }
+
+  /**
+   * Builds the compression prompt for meta-summarization.
+   */
+  private buildCompressionPrompt(combinedText: string): string {
+    return `You are compressing long-term memory for an Arduino development assistant. The user has had an extended conversation with multiple topics.
 
 **YOUR TASK:**
 Create a PERSISTENT PROJECT MEMORY that captures:
@@ -359,58 +418,37 @@ ${combinedText}
 ---
 
 **PERSISTENT PROJECT MEMORY (aim for 70-80% compression):**`;
+  }
 
-      const response = await this.aiService.generate({
-        prompt: compressionPrompt,
-        model: 'gemini-2.5-flash', // Use full model for better quality compression
-        generationConfig: {
-          maxOutputTokens: 4096, // Increased for comprehensive compression
-          temperature: 0.1, // Very deterministic
-        },
-        abortKey: `compress-${Date.now()}`,
-      });
+  /**
+   * Updates memory bank with compressed summaries and logs results.
+   */
+  private updateMemoryBankWithCompression(
+    memoryBank: ConversationMemory['memoryBank'],
+    compressedSummary: SummaryEntry,
+    recentSummary: SummaryEntry,
+    oldSummaries: SummaryEntry[]
+  ): void {
+    memoryBank.summaries = [compressedSummary, recentSummary];
+    memoryBank.totalTokens =
+      (compressedSummary.estimatedTokens || 0) +
+      (recentSummary.estimatedTokens || 0);
+    memoryBank.lastCompressedAt = Date.now();
 
-      if (response.text && response.text.trim() !== '') {
-        // Create compressed version of old summaries
-        const compressedSummary: SummaryEntry = withTokenCount(
-          {
-            id: `compressed-${Date.now()}`,
-            summary: response.text.trim(),
-            originalMessageIds: oldSummaries.flatMap(
-              (s) => s.originalMessageIds
-            ),
-            createdAt: Date.now(),
-            category: 'general',
-          },
-          'natural'
-        );
+    const originalTokens = oldSummaries.reduce(
+      (sum, s) => sum + (s.estimatedTokens || 0),
+      0
+    );
+    const compressionRatio = Math.round(
+      (1 - compressedSummary.estimatedTokens! / originalTokens) * 100
+    );
 
-        // KEEP: Most recent summary + compressed older ones
-        memoryBank.summaries = [compressedSummary, recentSummary];
-        memoryBank.totalTokens =
-          (compressedSummary.estimatedTokens || 0) +
-          (recentSummary.estimatedTokens || 0);
-        memoryBank.lastCompressedAt = Date.now();
-
-        const originalTokens = oldSummaries.reduce(
-          (sum, s) => sum + (s.estimatedTokens || 0),
-          0
-        );
-        const compressionRatio = Math.round(
-          (1 - compressedSummary.estimatedTokens! / originalTokens) * 100
-        );
-
-        spectreLog(
-          `✅ Compressed ${oldSummaries.length} old summaries to ${compressedSummary.estimatedTokens} tokens (${compressionRatio}% reduction)`
-        );
-        spectreLog(
-          `📊 New memory bank: 2 summaries (compressed + recent), ${memoryBank.totalTokens} total tokens`
-        );
-      }
-    } catch (error) {
-      spectreError('Memory bank compression failed:', error);
-      // Keep existing summaries if compression fails
-    }
+    spectreLog(
+      `✅ Compressed ${oldSummaries.length} old summaries to ${compressedSummary.estimatedTokens} tokens (${compressionRatio}% reduction)`
+    );
+    spectreLog(
+      `📊 New memory bank: 2 summaries (compressed + recent), ${memoryBank.totalTokens} total tokens`
+    );
   }
 
   /**
@@ -426,54 +464,35 @@ ${combinedText}
       additionalContext,
       targetTokenBudget = 50_000,
     } = options;
-    const { memoryBank, recentMessages } = memory;
 
     const parts: string[] = [];
     let estimatedTokens = 0;
 
-    // 1. Memory Bank (if exists)
-    if (memoryBank.summaries.length > 0) {
-      const memoryContext = memoryBank.summaries
-        .map((s) => `[Historical Context]:\n${s.summary}`)
-        .join('\n\n');
+    // 1. Add memory bank summaries
+    const memoryBankTokens = this.addMemoryBank(
+      memory.memoryBank,
+      parts
+    );
+    estimatedTokens += memoryBankTokens;
 
-      parts.push(memoryContext);
-      estimatedTokens += memoryBank.totalTokens;
-    }
+    // 2. Add recent messages
+    const recentTokens = this.addRecentMessages(
+      memory.recentMessages,
+      parts,
+      estimatedTokens,
+      targetTokenBudget
+    );
+    estimatedTokens += recentTokens;
 
-    // 2. Recent Messages (working backwards to fit budget)
-    const recentContext: string[] = [];
-    for (let i = recentMessages.length - 1; i >= 0; i--) {
-      const msg = recentMessages[i];
-      const msgTokens =
-        msg.estimatedTokens || TokenCounter.fastEstimate(msg.text);
+    // 3. Add additional context
+    this.addAdditionalContext(
+      additionalContext,
+      parts,
+      estimatedTokens,
+      targetTokenBudget
+    );
 
-      if (estimatedTokens + msgTokens > targetTokenBudget * 0.8) {
-        break; // Leave room for current prompt
-      }
-
-      recentContext.unshift(
-        `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.text}`
-      );
-      estimatedTokens += msgTokens;
-    }
-
-    if (recentContext.length > 0) {
-      parts.push('[Recent Conversation]:\n' + recentContext.join('\n\n'));
-    }
-
-    // 3. Additional Context (sketch files, etc.)
-    if (additionalContext && additionalContext.trim() !== '') {
-      const contextTokens = TokenCounter.fastEstimate(additionalContext);
-      if (estimatedTokens + contextTokens < targetTokenBudget * 0.9) {
-        parts.push(additionalContext);
-        estimatedTokens += contextTokens;
-      } else {
-        spectreWarn('Additional context too large, skipping');
-      }
-    }
-
-    // 4. Current Prompt
+    // 4. Add current prompt
     parts.push(`[Current Request]:\n${currentPrompt}`);
     const currentTokens = TokenCounter.estimate(currentPrompt, 'mixed');
     estimatedTokens += currentTokens;
@@ -483,15 +502,89 @@ ${combinedText}
     const tokenCount: TokenCount = {
       total: estimatedTokens,
       breakdown: {
-        memoryBank: memoryBank.totalTokens,
-        recentMessages:
-          estimatedTokens - memoryBank.totalTokens - currentTokens,
+        memoryBank: memoryBankTokens,
+        recentMessages: recentTokens,
         currentPrompt: currentTokens,
         systemPrompt: 0,
       },
     };
 
     return { prompt: finalPrompt, tokenCount };
+  }
+
+  /**
+   * Adds memory bank summaries to prompt parts.
+   * Returns total tokens added.
+   */
+  private addMemoryBank(
+    memoryBank: ConversationMemory['memoryBank'],
+    parts: string[]
+  ): number {
+    if (memoryBank.summaries.length === 0) {
+      return 0;
+    }
+
+    const memoryContext = memoryBank.summaries
+      .map((s) => `[Historical Context]:\n${s.summary}`)
+      .join('\n\n');
+
+    parts.push(memoryContext);
+    return memoryBank.totalTokens;
+  }
+
+  /**
+   * Adds recent messages to prompt parts, working backwards to fit budget.
+   * Returns total tokens added.
+   */
+  private addRecentMessages(
+    recentMessages: RawMessage[],
+    parts: string[],
+    currentTokens: number,
+    targetTokenBudget: number
+  ): number {
+    const recentContext: string[] = [];
+    let addedTokens = 0;
+
+    for (let i = recentMessages.length - 1; i >= 0; i--) {
+      const msg = recentMessages[i];
+      const msgTokens =
+        msg.estimatedTokens || TokenCounter.fastEstimate(msg.text);
+
+      if (currentTokens + addedTokens + msgTokens > targetTokenBudget * 0.8) {
+        break; // Leave room for current prompt
+      }
+
+      const roleLabel = msg.role === 'user' ? 'User' : 'Assistant';
+      recentContext.unshift(`${roleLabel}: ${msg.text}`);
+      addedTokens += msgTokens;
+    }
+
+    if (recentContext.length > 0) {
+      parts.push('[Recent Conversation]:\n' + recentContext.join('\n\n'));
+    }
+
+    return addedTokens;
+  }
+
+  /**
+   * Adds additional context if it fits within token budget.
+   */
+  private addAdditionalContext(
+    additionalContext: string | undefined,
+    parts: string[],
+    currentTokens: number,
+    targetTokenBudget: number
+  ): void {
+    if (!additionalContext || additionalContext.trim() === '') {
+      return;
+    }
+
+    const contextTokens = TokenCounter.fastEstimate(additionalContext);
+    if (currentTokens + contextTokens < targetTokenBudget * 0.9) {
+      parts.push(additionalContext);
+    } else {
+      spectreWarn('Additional context too large, skipping');
+    }
   }
 
   /**
