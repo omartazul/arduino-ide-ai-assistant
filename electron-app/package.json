@@ -147,7 +147,8 @@
         "nsis",
         "zip"
       ],
-      "sign": "./scripts/windowsCustomSign.js"
+      "sign": "./scripts/windowsCustomSign.js",
+      "extraFiles": "resources/PATENT_DISCLAIMER"
     },
     "mac": {
       "darkModeSupport": true,
@@ -157,7 +158,8 @@
       "entitlementsInherit": "resources/entitlements.mac.plist",
       "target": {
         "target": "default"
-      }
+      },
+      "extraResources": "resources/PATENT_DISCLAIMER"
     },
     "linux": {
       "target": [
@@ -165,7 +167,8 @@
         "AppImage"
       ],
       "category": "Development",
-      "icon": "resources/icons"
+      "icon": "resources/icons",
+      "extraFiles": "resources/PATENT_DISCLAIMER"
     },
     "msi": {
       "runAfterFinish": false
