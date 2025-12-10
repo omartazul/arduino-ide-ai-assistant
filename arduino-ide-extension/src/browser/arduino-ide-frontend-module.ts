@@ -9,7 +9,7 @@ import {
 } from '../common/protocol/spectre-ai-service';
 import { SpectreAiFrontendClient } from './spectre/spectre-ai-frontend-client';
 import { SpectreSecretsFrontendClient } from './spectre/spectre-secrets-frontend-client';
-import { MemoryManager } from './spectre/memory-manager';
+import { MemoryManager } from './spectre/memory/memory-manager';
 import { Container, ContainerModule } from '@theia/core/shared/inversify';
 import { WidgetFactory } from '@theia/core/lib/browser/widget-manager';
 import { CommandContribution } from '@theia/core/lib/common/command';

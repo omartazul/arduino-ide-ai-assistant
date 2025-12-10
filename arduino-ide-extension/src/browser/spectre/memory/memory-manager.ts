@@ -6,6 +6,8 @@
  * - Automatic summarization of older messages
  * - Periodic compression of memory bank
  * - Token-aware prompt assembly
+ *
+ * @author Tazul Islam
  */
 
 import { injectable, inject } from '@theia/core/shared/inversify';
@@ -18,13 +20,13 @@ import {
   PromptAssemblyOptions,
   TokenCount,
 } from './memory-types';
-import { TokenCounter, withTokenCount } from './token-counter';
-import { SpectreAiService } from '../../common/protocol/spectre-ai-service';
+import { TokenCounter, withTokenCount } from '../utils/token-counter';
+import { SpectreAiService } from '../../../common/protocol/spectre-ai-service';
 import {
   spectreLog,
   spectreWarn,
   spectreError,
-} from '../../common/protocol/spectre-types';
+} from '../../../common/protocol/spectre-types';
 
 @injectable()
 export class MemoryManager {
@@ -128,8 +130,6 @@ export class MemoryManager {
       return;
     }
 
-    spectreLog(`📝 Summarizing ${toSummarize.length} old messages...`);
-
     try {
       const summary = await this.generateSummary(toSummarize);
 
@@ -146,9 +146,6 @@ export class MemoryManager {
         memory.stats.summarizationsPerformed++;
         memory.stats.lastSummarizedAt = Date.now();
 
-        spectreLog(`✅ Summarized into ${summary.estimatedTokens} tokens`);
-
-        // Check if memory bank needs compression
         await this.checkAndCompressMemoryBank(memory);
       }
     } catch (error) {
@@ -288,14 +285,7 @@ ${conversationText}
     const threshold =
       config.memoryBankTokenCap * config.compressionTrigger.threshold;
 
-    spectreLog(
-      `🔍 Memory bank check: ${memoryBank.totalTokens} tokens vs ${threshold} threshold`
-    );
-
     if (memoryBank.totalTokens > threshold) {
-      spectreLog(
-        `⚠️ TRIGGERING COMPRESSION: ${memoryBank.totalTokens} > ${threshold}`
-      );
       await this.compressMemoryBank(memory);
     }
   }
@@ -311,10 +301,6 @@ ${conversationText}
     if (memoryBank.summaries.length < 3) {
       return;
     }
-
-    spectreLog(
-      `🗜️ Compressing memory bank (${memoryBank.summaries.length} summaries, ${memoryBank.totalTokens} tokens)...`
-    );
 
     try {
       const { recentSummary, oldSummaries } = this.splitSummariesForCompression(memoryBank);

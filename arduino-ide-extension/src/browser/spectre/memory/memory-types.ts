@@ -14,6 +14,8 @@
  * - Scales to arbitrarily long conversations
  * - Preserves critical context (decisions, code changes, intents)
  * - No hard-coded limits on message length
+ *
+ * @author Tazul Islam
  */
 
 /**

@@ -27,13 +27,10 @@ import {
 import { SpectreSecretsService } from '../common/protocol/spectre-secrets-service';
 import {
   TIMING_CONSTANTS,
-  spectreLog,
   spectreWarn,
   spectreError,
 } from '../common/protocol/spectre-types';
 import { AGENT_FUNCTIONS } from './spectre-agent-functions';
-
-/** Removed: No longer needed - secrets service handles API key storage */
 
 /**
  * Core identity shared by all modes.
@@ -617,31 +614,39 @@ export class SpectreAiServiceImpl implements SpectreAiService {
    * Checks if a request can start immediately without violating rate limits.
    * Considers RPM limits, RPD limits (resets at midnight Pacific Time), token capacity, and minimum spacing.
    */
-  private canStartNow(model: string, reservationTokens: number): boolean {
-    this.cleanWindows();
-    const now = Date.now();
-
-    // Use cached filtered lists instead of filtering on every call
-    // Check RPM (requests per minute)
+  private isRpmLimitExceeded(model: string): boolean {
     const rpmLimit = this.isFlashLite(model) ? RPM_FLASH_LITE : RPM_FLASH;
     const rpmList = this.cachedRpmLists[model] || [];
-    if (rpmList.length >= rpmLimit) return false;
+    return rpmList.length >= rpmLimit;
+  }
 
-    // Check RPD (requests per day - resets at midnight Pacific Time)
+  private isRpdLimitExceeded(model: string): boolean {
     const rpdLimit = this.isFlashLite(model) ? RPD_FLASH_LITE : RPD_FLASH;
     const dailyList = this.cachedDailyLists[model] || [];
-    if (dailyList.length >= rpdLimit) return false;
+    return dailyList.length >= rpdLimit;
+  }
 
-    // Check TPM (tokens per minute)
+  private isTokenLimitExceeded(reservationTokens: number): boolean {
     const used = this.currentUsedTokens();
-    if (used + reservationTokens > TOKEN_CAPACITY_PER_MINUTE) return false;
+    return used + reservationTokens > TOKEN_CAPACITY_PER_MINUTE;
+  }
 
-    // Check minimum spacing between requests
+  private isSpacingViolated(model: string, now: number): boolean {
     const last = this.lastCallAt[model] || 0;
     const minSpacing = this.isFlashLite(model)
       ? MIN_SPACING_MS_FLASH_LITE
       : MIN_SPACING_MS_FLASH;
-    if (now - last < minSpacing) return false;
+    return now - last < minSpacing;
+  }
+
+  private canStartNow(model: string, reservationTokens: number): boolean {
+    this.cleanWindows();
+    const now = Date.now();
+
+    if (this.isRpmLimitExceeded(model)) return false;
+    if (this.isRpdLimitExceeded(model)) return false;
+    if (this.isTokenLimitExceeded(reservationTokens)) return false;
+    if (this.isSpacingViolated(model, now)) return false;
 
     return true;
   }
@@ -654,39 +659,49 @@ export class SpectreAiServiceImpl implements SpectreAiService {
     }, 0);
   }
 
+  private calculateTokenDelay(model: string, reservationTokens: number, now: number): number {
+    const used = this.currentUsedTokens();
+    if (used + reservationTokens <= TOKEN_CAPACITY_PER_MINUTE) return 0;
+
+    let cumulative = used;
+    const window = this.tokenWindows[model] || [];
+    for (const entry of window) {
+      const expiry = entry.time + ROLLING_WINDOW_MS;
+      cumulative -= entry.tokens;
+      if (cumulative + reservationTokens <= TOKEN_CAPACITY_PER_MINUTE) {
+        return Math.max(0, expiry - now);
+      }
+    }
+    return 0;
+  }
+
+  private calculateRpmDelay(model: string, now: number): number {
+    const limit = this.isFlashLite(model) ? RPM_FLASH_LITE : RPM_FLASH;
+    const rpmList = (this.recentCalls[model] || []).filter(
+      (t) => now - t < ROLLING_WINDOW_MS
+    );
+    if (rpmList.length >= limit) {
+      return rpmList[0] + ROLLING_WINDOW_MS - now;
+    }
+    return 0;
+  }
+
+  private calculateSpacingDelay(model: string, now: number): number {
+    const minSpacing = this.isFlashLite(model)
+      ? MIN_SPACING_MS_FLASH_LITE
+      : MIN_SPACING_MS_FLASH;
+    return Math.max(0, (this.lastCallAt[model] || 0) + minSpacing - now);
+  }
+
   private computeNextAvailabilityMs(): number {
     const now = Date.now();
     if (!this.queue.length) return now;
+    
     const head = this.queue[0];
-    const need = head.reservationTokens;
-    const used = this.currentUsedTokens();
-    let tokenDelay = 0;
-    if (used + need > TOKEN_CAPACITY_PER_MINUTE) {
-      let cumulative = used;
-      const window = this.tokenWindows[head.model] || [];
-      for (const entry of window) {
-        const expiry = entry.time + ROLLING_WINDOW_MS;
-        cumulative -= entry.tokens;
-        if (cumulative + need <= TOKEN_CAPACITY_PER_MINUTE) {
-          tokenDelay = Math.max(0, expiry - now);
-          break;
-        }
-      }
-    }
-    const limit = this.isFlashLite(head.model) ? RPM_FLASH_LITE : RPM_FLASH;
-    const rpmList = (this.recentCalls[head.model] || []).filter(
-      (t) => now - t < ROLLING_WINDOW_MS
-    );
-    let rpmDelay = 0;
-    if (rpmList.length >= limit)
-      rpmDelay = rpmList[0] + ROLLING_WINDOW_MS - now;
-    const minSpacing = this.isFlashLite(head.model)
-      ? MIN_SPACING_MS_FLASH_LITE
-      : MIN_SPACING_MS_FLASH;
-    const spacingDelay = Math.max(
-      0,
-      (this.lastCallAt[head.model] || 0) + minSpacing - now
-    );
+    const tokenDelay = this.calculateTokenDelay(head.model, head.reservationTokens, now);
+    const rpmDelay = this.calculateRpmDelay(head.model, now);
+    const spacingDelay = this.calculateSpacingDelay(head.model, now);
+    
     return now + Math.max(tokenDelay, rpmDelay, spacingDelay);
   }
 
@@ -717,31 +732,40 @@ export class SpectreAiServiceImpl implements SpectreAiService {
     this.ensureDecayTicker();
   }
 
-  private ensureDecayTicker(): void {
-    const need =
+  private hasActiveTracking(): boolean {
+    return (
       Object.values(this.tokenWindows).some((w) => w.length > 0) ||
-      Object.values(this.recentCalls).some((l) => l.length);
+      Object.values(this.recentCalls).some((l) => l.length > 0)
+    );
+  }
+
+  private isAllTrackingEmpty(): boolean {
+    const afterRpm = Object.values(this.recentCalls).reduce((a, l) => a + l.length, 0);
+    return (
+      Object.values(this.tokenWindows).every((w) => w.length === 0) &&
+      afterRpm === 0 &&
+      this.queue.length === 0
+    );
+  }
+
+  private ensureDecayTicker(): void {
+    const need = this.hasActiveTracking();
+    
     if (need && !this.decayTicker) {
       this.decayTicker = setInterval(() => {
         const beforeTokens = this.currentUsedTokens();
-        const beforeRpm = Object.values(this.recentCalls).reduce(
-          (a, l) => a + l.length,
-          0
-        );
+        const beforeRpm = Object.values(this.recentCalls).reduce((a, l) => a + l.length, 0);
+        
         this.cleanWindows();
+        
         const afterTokens = this.currentUsedTokens();
-        const afterRpm = Object.values(this.recentCalls).reduce(
-          (a, l) => a + l.length,
-          0
-        );
+        const afterRpm = Object.values(this.recentCalls).reduce((a, l) => a + l.length, 0);
+        
         if (beforeTokens !== afterTokens || beforeRpm !== afterRpm) {
           this.pushQuotaUpdate();
         }
-        if (
-          Object.values(this.tokenWindows).every((w) => w.length === 0) &&
-          afterRpm === 0 &&
-          this.queue.length === 0
-        ) {
+        
+        if (this.isAllTrackingEmpty()) {
           clearInterval(this.decayTicker!);
           this.decayTicker = undefined;
         }
@@ -821,6 +845,12 @@ export class SpectreAiServiceImpl implements SpectreAiService {
    * - Uses cached lists to avoid repeated O(n) filtering
    * - Early exit if no cleanup needed
    */
+  private shouldCleanWindow<T>(window: T[], cutoff: number, predicate: (item: T) => boolean): boolean {
+    if (window.length === 0) return false;
+    const expiredCount = window.filter(predicate).length;
+    return expiredCount > window.length * 0.3;
+  }
+
   private cleanWindows(): void {
     const now = Date.now();
     const rpmCutoff = now - ROLLING_WINDOW_MS;
@@ -832,21 +862,9 @@ export class SpectreAiServiceImpl implements SpectreAiService {
     // Clean token windows (TPM) - only if 30%+ entries are expired
     for (const model in this.tokenWindows) {
       const window = this.tokenWindows[model];
-      if (window.length === 0) continue;
-
-      // Count expired entries
-      let expiredCount = 0;
-      for (const entry of window) {
-        if (entry.time < rpmCutoff) expiredCount++;
-      }
-
-      // Only clean if 30%+ entries expired (amortized O(1))
-      if (expiredCount > window.length * 0.3) {
-        this.tokenWindows[model] = window.filter(
-          (e: TokenUsage) => e.time >= rpmCutoff
-        );
+      if (this.shouldCleanWindow(window, rpmCutoff, (e) => e.time < rpmCutoff)) {
+        this.tokenWindows[model] = window.filter((e: TokenUsage) => e.time >= rpmCutoff);
         needRebuildCache = true;
-
         if (this.tokenWindows[model].length === 0) {
           delete this.tokenWindows[model];
         }
@@ -856,19 +874,9 @@ export class SpectreAiServiceImpl implements SpectreAiService {
     // Clean RPM tracking - only if 30%+ entries are expired
     for (const k in this.recentCalls) {
       const list = this.recentCalls[k];
-      if (list.length === 0) continue;
-
-      // Count expired entries
-      let expiredCount = 0;
-      for (const time of list) {
-        if (time < rpmCutoff) expiredCount++;
-      }
-
-      // Only clean if 30%+ entries expired
-      if (expiredCount > list.length * 0.3) {
+      if (this.shouldCleanWindow(list, rpmCutoff, (t) => t < rpmCutoff)) {
         this.recentCalls[k] = list.filter((t) => t >= rpmCutoff);
         needRebuildCache = true;
-
         if (this.recentCalls[k].length === 0) {
           delete this.recentCalls[k];
         }
@@ -878,19 +886,9 @@ export class SpectreAiServiceImpl implements SpectreAiService {
     // Clean RPD tracking - only if 30%+ entries are expired
     for (const k in this.dailyCalls) {
       const list = this.dailyCalls[k];
-      if (list.length === 0) continue;
-
-      // Count expired entries
-      let expiredCount = 0;
-      for (const time of list) {
-        if (time < pacificMidnight) expiredCount++;
-      }
-
-      // Only clean if 30%+ entries expired
-      if (expiredCount > list.length * 0.3) {
+      if (this.shouldCleanWindow(list, pacificMidnight, (t) => t < pacificMidnight)) {
         this.dailyCalls[k] = list.filter((t) => t >= pacificMidnight);
         needRebuildCache = true;
-
         if (this.dailyCalls[k].length === 0) {
           delete this.dailyCalls[k];
         }
@@ -1141,7 +1139,6 @@ export class SpectreAiServiceImpl implements SpectreAiService {
 
         // Retry once without thinkingConfig if API rejects it
         if (!triedNoThinking && /Unknown name "thinkingConfig"/i.test(msg)) {
-          spectreLog('[Spectre AI] Retrying without thinkingConfig...');
           delete genConfig.thinkingConfig;
           triedNoThinking = true;
           continue;
@@ -1152,9 +1149,6 @@ export class SpectreAiServiceImpl implements SpectreAiService {
           !triedNoGoogleSearch &&
           /Unknown|google_search|googleSearch|tool/i.test(msg)
         ) {
-          spectreLog(
-            '[Spectre AI] Google Search may be unsupported, retrying without tools...'
-          );
           triedNoGoogleSearch = true;
           continue;
         }
@@ -1349,16 +1343,11 @@ export class SpectreAiServiceImpl implements SpectreAiService {
       tools.push({
         functionDeclarations,
       });
-
-      spectreLog(
-        `[Spectre Agent] Enabled with ${functionDeclarations.length} functions`
-      );
     } else if (!disableGoogleSearch && request?.enableGoogleSearch !== false) {
       // Only enable Google Search if function calling is NOT active
       tools.push({
         googleSearch: {}, // New SDK uses camelCase
       });
-      spectreLog('[Spectre AI] Google Search enabled for this request');
     }
 
     // Build conversation contents for proper memory like GitHub Copilot
@@ -1481,12 +1470,6 @@ export class SpectreAiServiceImpl implements SpectreAiService {
 
       // Check for grounding metadata
       const groundingMetadata = candidate?.groundingMetadata;
-      if (groundingMetadata) {
-        spectreLog('[Spectre AI] Response includes grounding metadata:', {
-          queries: groundingMetadata.webSearchQueries?.length || 0,
-          sources: groundingMetadata.groundingChunks?.length || 0,
-        });
-      }
 
       // Extract function calls if present (agent mode)
       const functionCalls: FunctionCall[] = [];
@@ -1672,50 +1655,48 @@ function getPacificMidnight(): number {
  * Classifies API errors for retry logic and user messaging.
  * Handles authentication, rate limits, service overload, and network errors.
  */
+function isServerError(status: any): boolean {
+  return typeof status === 'number' && status >= 500 && status < 600;
+}
+
+function isAuthError(status: any, message: string): boolean {
+  return status === 401 || /UNAUTHENTICATED|permission|unauthorized|API key/i.test(message);
+}
+
+function isRateError(status: any, message: string): boolean {
+  return status === 429 || /rate|RESOURCE_EXHAUSTED/i.test(message);
+}
+
+function isQuotaError(message: string): boolean {
+  return /quota/i.test(message) && /exceed|exhaust/i.test(message);
+}
+
 function classifyError(err: any): {
   retryable: boolean;
   category: 'auth' | 'rate' | 'quota' | 'canceled' | 'other';
   message: string;
 } {
   const message = err instanceof Error ? err.message : String(err);
-  const status = (err && (err.status || err.code || err.statusCode)) as
-    | number
-    | string
-    | undefined;
+  const status = (err && (err.status || err.code || err.statusCode)) as number | string | undefined;
 
   if (/abort/i.test(message))
     return { retryable: false, category: 'canceled', message };
-  if (
-    status === 401 ||
-    /UNAUTHENTICATED|permission|unauthorized|API key/i.test(message)
-  )
+  if (isAuthError(status, message))
     return { retryable: false, category: 'auth', message };
-  if (/quota/i.test(message) && /exceed|exhaust/i.test(message))
+  if (isQuotaError(message))
     return { retryable: false, category: 'quota', message };
-  if (status === 429 || /rate|RESOURCE_EXHAUSTED/i.test(message))
+  if (isRateError(status, message))
     return { retryable: true, category: 'rate', message };
 
   // Gemini-specific error handling
   if (/overloaded|503|Service Unavailable/i.test(message))
-    return {
-      retryable: true,
-      category: 'other',
-      message: 'Gemini API overloaded - retrying...',
-    };
+    return { retryable: true, category: 'other', message: 'Gemini API overloaded - retrying...' };
   if (/Failed to parse stream|parse.*stream/i.test(message))
-    return {
-      retryable: true,
-      category: 'other',
-      message: 'Network stream error - retrying...',
-    };
+    return { retryable: true, category: 'other', message: 'Network stream error - retrying...' };
   if (/Error fetching/i.test(message))
-    return {
-      retryable: true,
-      category: 'other',
-      message: 'Network connection error - retrying...',
-    };
+    return { retryable: true, category: 'other', message: 'Network connection error - retrying...' };
 
-  if (status && typeof status === 'number' && status >= 500 && status < 600)
+  if (isServerError(status))
     return { retryable: true, category: 'other', message };
   return { retryable: false, category: 'other', message };
 }

@@ -6,9 +6,11 @@
  *
  * For production use, consider integrating @google/generative-ai's
  * countTokens() method for exact counts.
+ *
+ * @author Tazul Islam
  */
 
-import { TokenCount } from './memory-types';
+import { TokenCount } from '../memory/memory-types';
 
 /**
  * Token estimation based on content type.
