@@ -431,6 +431,8 @@ export class BoardsServiceImpl
     switch (options.type) {
       case 'Updatable':
         return Installable.Updateable;
+      case 'Installed':
+        return Installable.Installed;
       case 'Arduino':
       case 'Partner':
       case 'Arduino@Heart':
