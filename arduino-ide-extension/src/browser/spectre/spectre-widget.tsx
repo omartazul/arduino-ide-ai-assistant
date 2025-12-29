@@ -1224,7 +1224,8 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
       // Install the library using the backend service
       await this.libraryService.install({
         item: libraryPackage,
-        installDependencies: true,
+        // Upstream API: install dependencies by default; `noDeps: true` skips.
+        noDeps: false,
       });
 
       const successMessage = AgentLibraryHelper.formatLibraryMessage({
