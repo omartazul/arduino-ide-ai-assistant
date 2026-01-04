@@ -24,9 +24,14 @@ export class ConfigDirUriProvider {
 
   configDirUri(): URI {
     if (!this.uri) {
-      this.uri = FileUri.create(
-        join(homedir(), BackendApplicationConfigProvider.get().configDirName)
-      );
+      const portableRoot = process.env.ARDUINO_IDE_AI_PORTABLE_ROOT;
+      if (portableRoot) {
+        this.uri = FileUri.create(join(portableRoot, 'Configuration'));
+      } else {
+        this.uri = FileUri.create(
+          join(homedir(), BackendApplicationConfigProvider.get().configDirName)
+        );
+      }
     }
     return this.uri;
   }

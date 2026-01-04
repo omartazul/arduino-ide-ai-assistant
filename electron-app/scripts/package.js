@@ -58,6 +58,13 @@ async function run() {
   }
   const cp = exec('electron-builder', args, { stdio: 'inherit' });
   await cp;
+
+  // Additionally produce a "portable installer" EXE on Windows.
+  // This creates the folder layout:
+  // <chosen>\Arduino-IDE-AI-Assistant\{application,configuration,data,sketchbook}
+  if (process.platform === 'win32') {
+    await exec('node', ['./scripts/build-portable-win.js'], { stdio: 'inherit' });
+  }
 }
 
 function electronPlatform() {

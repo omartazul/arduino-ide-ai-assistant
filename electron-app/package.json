@@ -125,20 +125,12 @@
       "src-gen",
       "lib",
       "resources/icons/512x512.png",
-      "!**node_modules/**",
-      "!plugins/**/extension/binary_modules/**/darwin/**",
-      "!plugins/**/extension/binary_modules/**/darwin/**/*"
+      "!**node_modules/**"
     ],
-    
     "extraResources": [
       {
         "from": "plugins",
-        "to": "app/plugins",
-        "filter": [
-          "**/*",
-          "!**/binary_modules/**/darwin/**",
-          "!**/binary_modules/**/darwin/**/*"
-        ]
+        "to": "app/plugins"
       }
     ],
     "win": {

@@ -27,7 +27,7 @@ import { log as logToFile, setup as setupFileLog } from 'node-log-rotate';
 import { fork } from 'node:child_process';
 import { promises as fs, readFileSync, rm, rmSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
-import { isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Argv } from 'yargs';
 import { Sketch } from '../../common/protocol';
 import { poolWhile } from '../../common/utils';
@@ -178,6 +178,22 @@ export class ElectronMainApplication extends TheiaElectronMainApplication {
   private readonly scheduledDeletions: Disposable[] = [];
 
   override async start(config: FrontendApplicationConfig): Promise<void> {
+    // Portable layout support
+    // If the app is running from:
+    //   <X>\Arduino-IDE-AI-Assistant\Application\<exe>
+    // route config/data/sketchbook to sibling folders under <X>\Arduino-IDE-AI-Assistant.
+    const portableRoot = this.tryGetPortableRootFromExecPath();
+    if (portableRoot) {
+      process.env.ARDUINO_IDE_AI_PORTABLE_ROOT = portableRoot;
+      await Promise.all([
+        fs.mkdir(join(portableRoot, 'Configuration'), { recursive: true }),
+        fs.mkdir(join(portableRoot, 'Data'), { recursive: true }),
+        fs.mkdir(join(portableRoot, 'Sketchbook'), { recursive: true }),
+      ]);
+      // Default Electron user data to the portable configuration folder.
+      app.setPath('userData', join(portableRoot, 'Configuration'));
+    }
+
     createYargs(this.argv, process.cwd())
       .command(
         '$0 [file]',
@@ -231,6 +247,26 @@ export class ElectronMainApplication extends TheiaElectronMainApplication {
         }
       )
       .parse();
+  }
+
+  private tryGetPortableRootFromExecPath(): string | undefined {
+    try {
+      const exePath = process.execPath;
+      const applicationDir = dirname(exePath);
+      const root = dirname(applicationDir);
+
+      if (basename(applicationDir).toLowerCase() !== 'application') {
+        return undefined;
+      }
+      if (basename(root) !== 'Arduino-IDE-AI-Assistant') {
+        return undefined;
+      }
+
+      return root;
+    } catch {
+      // ignore
+    }
+    return undefined;
   }
 
   private startContentTracing(): void {

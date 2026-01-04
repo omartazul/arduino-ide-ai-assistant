@@ -1,4 +1,5 @@
-import { join } from 'node:path';
+import { promises as fs } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { inject, injectable, named } from '@theia/core/shared/inversify';
 import { spawn, ChildProcess } from 'node:child_process';
 import { FileUri } from '@theia/core/lib/common/file-uri';
@@ -17,6 +18,7 @@ import { CLI_CONFIG } from './cli-config';
 import { SettingsReader } from './settings-reader';
 import { ProcessUtils } from '@theia/core/lib/node/process-utils';
 import { arduinoCliPath } from './resources';
+import yaml from 'js-yaml';
 
 @injectable()
 export class ArduinoDaemonImpl
@@ -124,7 +126,14 @@ export class ArduinoDaemonImpl
       this.envVariablesServer.getConfigDirUri(),
       this.debugDaemon(),
     ]);
-    const cliConfigPath = join(FileUri.fsPath(configDirUri), CLI_CONFIG);
+    const configDirPath = FileUri.fsPath(configDirUri);
+    const cliConfigPath = join(configDirPath, CLI_CONFIG);
+
+    const portableRoot = process.env.ARDUINO_IDE_AI_PORTABLE_ROOT;
+    if (portableRoot) {
+      await this.ensurePortableCliConfig(cliConfigPath, portableRoot);
+    }
+
     const args = [
       'daemon',
       '--port',
@@ -137,6 +146,41 @@ export class ArduinoDaemonImpl
       args.push('--debug');
     }
     return args;
+  }
+
+  private async ensurePortableCliConfig(
+    cliConfigPath: string,
+    portableRoot: string
+  ): Promise<void> {
+    const configDirPath = dirname(cliConfigPath);
+    await fs.mkdir(configDirPath, { recursive: true });
+
+    const dataDir = join(portableRoot, 'Data');
+    const userDir = join(portableRoot, 'Sketchbook');
+    await Promise.all([
+      fs.mkdir(join(portableRoot, 'Configuration'), { recursive: true }),
+      fs.mkdir(dataDir, { recursive: true }),
+      fs.mkdir(userDir, { recursive: true }),
+    ]);
+
+    try {
+      await fs.access(cliConfigPath);
+    } catch {
+      // Avoid calling `arduino-cli config init` in portable mode because it can touch
+      // the default Arduino15 directory before our overrides are applied.
+    }
+
+    let model: any = {};
+    try {
+      const content = await fs.readFile(cliConfigPath, { encoding: 'utf8' });
+      model = (yaml.safeLoad(content) || {}) as any;
+    } catch {
+      model = {};
+    }
+
+    model.directories = { ...(model.directories || {}), data: dataDir, user: userDir };
+    const updated = yaml.safeDump(model, { lineWidth: -1 });
+    await fs.writeFile(cliConfigPath, updated, { encoding: 'utf8' });
   }
 
   private async debugDaemon(): Promise<boolean> {

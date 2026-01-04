@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import yaml from 'js-yaml';
 import { injectable, inject, named } from '@theia/core/shared/inversify';
 import URI from '@theia/core/lib/common/uri';
@@ -217,20 +217,55 @@ export class ConfigServiceImpl
 
   private async getFallbackCliConfig(): Promise<DefaultCliConfig> {
     const cliPath = this.daemon.getExecPath();
+
+    const cliConfigFileUri = await this.getCliConfigFileUri();
+    const cliConfigPath = FileUri.fsPath(cliConfigFileUri);
+    try {
+      await fs.access(cliConfigPath);
+    } catch {
+      await this.initCliConfigTo(dirname(cliConfigPath));
+    }
+
     const [configRaw, directoriesRaw] = await Promise.all([
-      spawnCommand(cliPath, ['config', 'dump', '--json']),
+      spawnCommand(cliPath, ['config', 'dump', '--json', '--config-file', cliConfigPath]),
       // Since CLI 1.0, the command `config dump` only returns user-modified values and not default ones.
       // directories.user and directories.data are required by IDE2 so we get the default value explicitly.
-      spawnCommand(cliPath, ['config', 'get', 'directories', '--json']),
+      spawnCommand(cliPath, ['config', 'get', 'directories', '--json', '--config-file', cliConfigPath]),
     ]);
 
     const config = JSON.parse(configRaw);
     const { user, data } = JSON.parse(directoriesRaw);
 
+    const portableRoot = process.env.ARDUINO_IDE_AI_PORTABLE_ROOT;
+    if (portableRoot) {
+      return {
+        ...config.config,
+        directories: {
+          user: require('node:path').join(portableRoot, 'Sketchbook'),
+          data: require('node:path').join(portableRoot, 'Data'),
+        },
+      };
+    }
+
     return { ...config.config, directories: { user, data } };
   }
 
   private async initCliConfigTo(fsPathToDir: string): Promise<void> {
+    const portableRoot = process.env.ARDUINO_IDE_AI_PORTABLE_ROOT;
+    if (portableRoot) {
+      await fs.mkdir(fsPathToDir, { recursive: true });
+      const cliConfigPath = join(fsPathToDir, CLI_CONFIG);
+      const model = {
+        directories: {
+          data: join(portableRoot, 'Data'),
+          user: join(portableRoot, 'Sketchbook'),
+        },
+      };
+      const updated = yaml.safeDump(model, { lineWidth: -1 });
+      await fs.writeFile(cliConfigPath, updated, { encoding: 'utf-8' });
+      return;
+    }
+
     const cliPath = this.daemon.getExecPath();
     await spawnCommand(cliPath, ['config', 'init', '--dest-dir', fsPathToDir]);
   }
