@@ -4276,6 +4276,14 @@ ${platformsList}
     const model = this.prefs['arduino.spectre.model'];
     const abortKey = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
+    // The input textarea is intentionally uncontrolled to avoid caret jumps on
+    // frequent widget re-renders (clock ticker, quota updates, etc.).
+    // Clear the DOM value explicitly when we clear state.
+    if (this.inputRef) {
+      this.inputRef.value = '';
+      this.autoGrow(this.inputRef);
+    }
+
     this.setStateData({
       sessions,
       input: '',
