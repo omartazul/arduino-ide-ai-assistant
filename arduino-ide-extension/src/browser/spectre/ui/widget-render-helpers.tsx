@@ -472,7 +472,7 @@ export function renderInputArea(props: InputAreaProps): React.ReactNode {
       <div className="input-wrap">
         <textarea
           rows={3}
-          value={input}
+          defaultValue={input}
           placeholder={busy ? 'Thinking…' : 'Type a message…'}
           onChange={onInputChange}
           onKeyDown={onKeyDown}

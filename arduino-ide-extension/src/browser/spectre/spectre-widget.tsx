@@ -2541,7 +2541,11 @@ ${platformsList}
       if (this.isInputFocusable(input)) {
         input!.focus();
         try {
-          input!.selectionStart = input!.selectionEnd = input!.value.length;
+          // Only move cursor to end if input is empty (after send/clear)
+          // Otherwise preserve current position for user editing
+          if (input!.value.length === 0) {
+            input!.selectionStart = input!.selectionEnd = input!.value.length;
+          }
         } catch (err) {
           // Cursor positioning failed silently
         }
@@ -3323,11 +3327,13 @@ ${platformsList}
 
   private onInputChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
+
     // Limit input based on model-specific token capacity
     const charLimit = this.getCharacterLimit();
     if (value.length > charLimit) {
       return;
     }
+
     this.setStateData({ input: value });
     this.autoGrow(e.target);
   };
@@ -4160,6 +4166,7 @@ ${platformsList}
       });
       this.persist();
       this.deferScroll();
+      this.focusInput();
     } catch (cleanupError) {
       spectreError('Agent cleanup error:', cleanupError);
       try {
@@ -4421,6 +4428,7 @@ ${platformsList}
 
     this.persist();
     this.deferScroll();
+    this.focusInput();
   }
 
   /**
