@@ -9,14 +9,14 @@
  * Result type for library operations.
  * Using discriminated union instead of returning string | object.
  */
-export type LibrarySearchResult =
+type LibrarySearchResult =
   | { success: true; package: any }
   | { success: false; error: string };
 
 /**
  * Parameters for library validation.
  */
-export interface LibraryValidationParams {
+interface LibraryValidationParams {
   name: string;
   operation: 'install' | 'uninstall';
 }
@@ -24,7 +24,7 @@ export interface LibraryValidationParams {
 /**
  * Parameters for library search operations.
  */
-export interface LibrarySearchParams {
+interface LibrarySearchParams {
   name: string;
   searchResults: any[];
 }
@@ -150,7 +150,7 @@ export class AgentLibraryHelper {
 /**
  * Parameters for formatting library messages.
  */
-export interface LibraryMessageParams {
+interface LibraryMessageParams {
   name: string;
   version?: string;
   type: 'notFound' | 'noVersions' | 'alreadyInstalled' | 'notInstalled' | 'installSuccess' | 'uninstallSuccess';

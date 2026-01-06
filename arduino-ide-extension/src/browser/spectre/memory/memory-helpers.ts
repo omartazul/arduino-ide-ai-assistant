@@ -73,46 +73,4 @@ export class MemoryHelper {
       return undefined;
     }
   }
-
-  /**
-   * Clears session memory from localStorage.
-   */
-  static clearSessionMemory(sessionId: number): void {
-    try {
-      localStorage.removeItem(`spectre-memory-${sessionId}`);
-    } catch (error) {
-      spectreError('Failed to clear session memory:', error);
-    }
-  }
-
-  /**
-   * Gets all session IDs with stored memory.
-   */
-  static getAllStoredSessionIds(): number[] {
-    const sessionIds: number[] = [];
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key?.startsWith('spectre-memory-')) {
-          const sessionId = parseInt(key.replace('spectre-memory-', ''), 10);
-          if (!isNaN(sessionId)) {
-            sessionIds.push(sessionId);
-          }
-        }
-      }
-    } catch (error) {
-      spectreError('Failed to get stored session IDs:', error);
-    }
-    return sessionIds;
-  }
-
-  /**
-   * Clears all stored session memory.
-   */
-  static clearAllSessionMemory(): void {
-    const sessionIds = MemoryHelper.getAllStoredSessionIds();
-    for (const sessionId of sessionIds) {
-      MemoryHelper.clearSessionMemory(sessionId);
-    }
-  }
 }

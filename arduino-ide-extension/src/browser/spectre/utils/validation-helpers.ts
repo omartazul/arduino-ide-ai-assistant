@@ -6,80 +6,9 @@
  */
 
 /**
- * Validation result for board and port operations.
- */
-export interface ValidationResult {
-  valid: boolean;
-  message?: string;
-  board?: any;
-  port?: any;
-}
-
-/**
  * Helper class for validation and formatting operations.
  */
 export class ValidationHelper {
-  /**
-   * Validates board and port configuration.
-   */
-  static validateBoardAndPort(
-    boardsService: any,
-    requirePort = false
-  ): ValidationResult {
-    const selectedBoard = boardsService.getSelectedBoard();
-    const selectedPort = boardsService.getSelectedPort();
-
-    if (!selectedBoard) {
-      return {
-        valid: false,
-        message: '❌ No board selected. Use <action type="select_board" name="..."/> first',
-      };
-    }
-
-    if (requirePort && !selectedPort) {
-      return {
-        valid: false,
-        message: '❌ No port selected. Use <action type="select_port" port="..."/> first',
-      };
-    }
-
-    return {
-      valid: true,
-      board: selectedBoard,
-      port: selectedPort,
-    };
-  }
-
-  /**
-   * Validates platform ID format.
-   */
-  static validatePlatformId(
-    platformId: string,
-    operation: 'installation' | 'uninstallation' = 'installation'
-  ): string | null {
-    if (!platformId || typeof platformId !== 'string' || !platformId.trim()) {
-      return `❌ Invalid platform ID for ${operation}. Expected format: "vendor:arch" (e.g., "arduino:avr")`;
-    }
-
-    const trimmedId = platformId.trim();
-    if (!/^[a-zA-Z0-9_-]+:[a-zA-Z0-9_-]+$/.test(trimmedId)) {
-      return `❌ Invalid platform ID format: "${trimmedId}". Expected format: "vendor:arch" (e.g., "arduino:avr")`;
-    }
-
-    return null;
-  }
-
-  /**
-   * Validates uninstall request.
-   */
-  static validateUninstallRequest(platformId: string): string | null {
-    const validationError = ValidationHelper.validatePlatformId(platformId, 'uninstallation');
-    if (validationError) {
-      return validationError;
-    }
-    return null;
-  }
-
   /**
    * Formats library installation error.
    */

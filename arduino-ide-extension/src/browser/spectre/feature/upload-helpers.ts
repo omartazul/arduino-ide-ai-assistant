@@ -29,7 +29,7 @@
 /**
  * Upload pattern categories for output analysis.
  */
-export const UPLOAD_PATTERN_CATEGORIES = {
+const UPLOAD_PATTERN_CATEGORIES = {
   criticalError: [
     /compilation terminated/i,
     /undefined reference/i,
@@ -99,7 +99,7 @@ export const UPLOAD_PATTERN_CATEGORIES = {
 /**
  * Compilation error patterns.
  */
-export const COMPILATION_ERROR_PATTERNS = [
+const COMPILATION_ERROR_PATTERNS = [
   /error:/gi,
   /compilation terminated/gi,
   /undefined reference/gi,
@@ -117,7 +117,7 @@ export const COMPILATION_ERROR_PATTERNS = [
 /**
  * Upload error patterns for all platforms.
  */
-export const UPLOAD_ERROR_PATTERNS = [
+const UPLOAD_ERROR_PATTERNS = [
   /upload.*error/gi,
   /upload.*failed/gi,
   /upload.*timeout/gi,
@@ -150,7 +150,7 @@ export const UPLOAD_ERROR_PATTERNS = [
 /**
  * Categorized upload output.
  */
-export interface CategorizedUploadOutput {
+interface CategorizedUploadOutput {
   criticalErrors: string[];
   portErrors: string[];
   uploadErrors: string[];
@@ -162,7 +162,7 @@ export interface CategorizedUploadOutput {
 /**
  * Upload analysis result.
  */
-export interface UploadAnalysisResult {
+interface UploadAnalysisResult {
   success: boolean;
   error?: string;
   shouldRetry?: boolean;
@@ -172,6 +172,14 @@ export interface UploadAnalysisResult {
  * Helper class for upload and compilation operations.
  */
 export class UploadHelper {
+  static scanForCompilationErrors(lines: string[]): string[] {
+    return UploadHelper.scanLinesForErrors(lines, COMPILATION_ERROR_PATTERNS);
+  }
+
+  static scanForUploadErrors(lines: string[]): string[] {
+    return UploadHelper.scanLinesForErrors(lines, UPLOAD_ERROR_PATTERNS);
+  }
+
   /**
    * Scans lines for errors using provided patterns.
    */

@@ -11,22 +11,57 @@
  */
 
 import { injectable, inject } from '@theia/core/shared/inversify';
-import {
-  ConversationMemory,
-  RawMessage,
-  SummaryEntry,
-  MemoryConfig,
-  DEFAULT_MEMORY_CONFIG,
-  PromptAssemblyOptions,
-  TokenCount,
-} from './memory-types';
-import { TokenCounter, withTokenCount } from '../utils/token-counter';
+import { ConversationMemory, RawMessage } from './memory-types';
+import { TokenCounter } from '../utils/token-counter';
 import { SpectreAiService } from '../../../common/protocol/spectre-ai-service';
 import {
   spectreLog,
   spectreWarn,
   spectreError,
 } from '../../../common/protocol/spectre-types';
+
+function withTokenCount<T extends { text?: string; summary?: string; estimatedTokens?: number }>(
+  obj: T,
+  contentType?: 'code' | 'json' | 'natural' | 'mixed'
+): T {
+  if (obj.estimatedTokens === undefined) {
+    const text = obj.text || obj.summary || '';
+    obj.estimatedTokens = TokenCounter.estimate(text, contentType);
+  }
+  return obj;
+}
+
+type MemoryConfig = ConversationMemory['config'];
+type SummaryEntry = ConversationMemory['memoryBank']['summaries'][number];
+
+type TokenCount = {
+  total: number;
+  breakdown: {
+    recentMessages: number;
+    memoryBank: number;
+    currentPrompt: number;
+    systemPrompt: number;
+  };
+};
+
+interface PromptAssemblyOptions {
+  currentPrompt: string;
+  additionalContext?: string;
+  pinMessages?: string[];
+  targetTokenBudget?: number;
+}
+
+const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
+  maxRecentMessages: 40, // 20 turns (user + assistant pairs) - increased from 30
+  memoryBankTokenCap: 100_000, // Still well below 1M limit, allows richer history
+  summarizationTrigger: {
+    minMessages: 30, // Summarize when buffer has 30+ messages (was 20)
+    maxTokens: 25_000, // Or when recent messages > 25k tokens (was 15k)
+  },
+  compressionTrigger: {
+    threshold: 0.9, // Compress when memory bank reaches 90% of cap
+  },
+};
 
 @injectable()
 export class MemoryManager {

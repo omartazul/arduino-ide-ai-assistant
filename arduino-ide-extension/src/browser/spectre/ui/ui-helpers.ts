@@ -1,47 +1,16 @@
 /**
- * Helper utilities for UI rendering in the Spectre widget.
- * Handles code block extraction, rendering, and diff visualization.
- * 
- * CODESCENE WARNINGS (Acceptable):
- * 
- * 1. "String Heavy Function Arguments":
- *    This file ALREADY USES parameter objects for complex operations:
- *    - findLineMatch(params: { oldLines, newLines, oldIdx, newIdx, ... })
- *    - checkDeletion(params: { ... })
- *    - checkAddition(params: { ... })
- *    
- *    Simple utility methods appropriately use primitives:
- *    - getFileLanguage(filePath: string) - single string lookup
- *    - containsArduinoCode(text: string) - text analysis
- *    - extractInlineCode(text: string) - single input, single output
- * 
- * 2. "Primitive Obsession":
- *    This module balances primitives and objects appropriately:
- *    - Complex return types use interfaces: CodeBlock, DiffDecoration
- *    - Parameter objects for multi-parameter methods (6+ uses)
- *    - Primitives for simple utilities (text processing, lookups)
- *    
- *    This follows best practices: use objects when parameters are related/complex,
- *    use primitives for simple, focused operations.
+ * UI utilities for the Spectre widget.
  *
- * @author Tazul Islam
+ * Includes helpers for code extraction, language detection, and diff visualization.
  */
 
 /**
  * Code block type with metadata.
  */
-export interface CodeBlock {
+interface CodeBlock {
   code: string;
   type: 'block' | 'inline';
   language?: string;
-}
-
-/**
- * Diff decoration for Monaco editor.
- */
-export interface DiffDecoration {
-  range: any;
-  options: any;
 }
 
 /**

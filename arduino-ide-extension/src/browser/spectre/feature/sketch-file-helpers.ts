@@ -11,7 +11,7 @@ import { spectreWarn } from '../../../common/protocol/spectre-types';
 /**
  * File information structure.
  */
-export interface SketchFile {
+interface SketchFile {
   path: string;
   content: string;
 }

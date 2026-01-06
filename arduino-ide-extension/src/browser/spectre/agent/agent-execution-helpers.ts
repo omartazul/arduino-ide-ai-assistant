@@ -8,7 +8,7 @@
 /**
  * Checks if result indicates success (no error marker).
  */
-export function isSuccessResult(result: string): boolean {
+function isSuccessResult(result: string): boolean {
   return !result.includes('❌');
 }
 
@@ -16,7 +16,7 @@ export function isSuccessResult(result: string): boolean {
  * Executes sketch-related functions.
  * Routes create_sketch, read_sketch, verify_sketch, upload_sketch calls.
  */
-export async function executeSketchFunction(
+async function executeSketchFunction(
   name: string,
   args: Record<string, any>,
   handlers: {
@@ -54,7 +54,7 @@ export async function executeSketchFunction(
  * Executes board-related functions.
  * Routes board selection, installation, configuration, and URL management calls.
  */
-export async function executeBoardFunction(
+async function executeBoardFunction(
   name: string,
   args: Record<string, any>,
   handlers: {
@@ -96,7 +96,7 @@ export async function executeBoardFunction(
  * Executes port and library-related functions.
  * Routes port selection and library installation/uninstallation calls.
  */
-export async function executePortAndLibraryFunction(
+async function executePortAndLibraryFunction(
   name: string,
   args: Record<string, any>,
   handlers: {

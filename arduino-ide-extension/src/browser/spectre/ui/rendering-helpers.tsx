@@ -8,9 +8,12 @@
 import React from '@theia/core/shared/react';
 
 /**
- * Lazy-loaded ReactMarkdown component
+ * Lazy-loaded ReactMarkdown component.
+ *
+ * `undefined` = not attempted
+ * `null` = failed to load; use fallback rendering
  */
-export let ReactMarkdownLazy: any = null;
+export let ReactMarkdownLazy: any | null | undefined = undefined;
 
 export function setReactMarkdownLazy(component: any): void {
   ReactMarkdownLazy = component;
@@ -19,14 +22,10 @@ export function setReactMarkdownLazy(component: any): void {
 /**
  * Renders text content with markdown.
  */
-export function renderMarkdownText(text: string, key: string): React.ReactNode {
+function renderMarkdownText(text: string, key: string): React.ReactNode {
   return (
     <div key={key} style={{ marginBottom: '8px' }}>
-      {ReactMarkdownLazy && ReactMarkdownLazy !== null ? (
-        <ReactMarkdownLazy>{text}</ReactMarkdownLazy>
-      ) : (
-        <pre>{text}</pre>
-      )}
+      {ReactMarkdownLazy ? <ReactMarkdownLazy>{text}</ReactMarkdownLazy> : <pre>{text}</pre>}
     </div>
   );
 }
@@ -78,7 +77,7 @@ export function processExplicitCodeBlocks(
   if (remainingText.trim()) {
     parts.push(
       <div key="text-final" style={{ marginTop: '8px' }}>
-        {ReactMarkdownLazy && ReactMarkdownLazy !== null ? (
+        {ReactMarkdownLazy ? (
           <ReactMarkdownLazy>{remainingText}</ReactMarkdownLazy>
         ) : (
           <pre>{remainingText}</pre>
@@ -109,11 +108,7 @@ export function renderInlineCodeBlocks(
 
   parts.push(
     <div key="text-main">
-      {ReactMarkdownLazy && ReactMarkdownLazy !== null ? (
-        <ReactMarkdownLazy>{text}</ReactMarkdownLazy>
-      ) : (
-        <pre>{text}</pre>
-      )}
+      {ReactMarkdownLazy ? <ReactMarkdownLazy>{text}</ReactMarkdownLazy> : <pre>{text}</pre>}
     </div>
   );
 
@@ -134,8 +129,6 @@ export function getFunctionIcon(functionName: string): string {
       return '📝';
     case 'read_sketch':
       return '📖';
-    case 'modify_sketch':
-      return '✏️';
     case 'verify_sketch':
       return '🔍';
     case 'upload_sketch':
@@ -152,11 +145,11 @@ export function getFunctionIcon(functionName: string): string {
       return '🗑️';
     case 'select_board':
       return '🎯';
+    case 'get_boards':
+      return '📋';
     case 'select_port':
       return '🔌';
-    case 'get_boards_list':
-      return '📋';
-    case 'get_ports_list':
+    case 'get_ports':
       return '🔌';
     case 'add_board_url':
       return '🌐';
@@ -182,8 +175,6 @@ export function getFunctionLabel(functionName: string): string {
       return 'Creating sketch';
     case 'read_sketch':
       return 'Reading sketch';
-    case 'modify_sketch':
-      return 'Modifying sketch';
     case 'verify_sketch':
       return 'Verifying sketch';
     case 'upload_sketch':
@@ -200,11 +191,11 @@ export function getFunctionLabel(functionName: string): string {
       return 'Uninstalling board';
     case 'select_board':
       return 'Selecting board';
+    case 'get_boards':
+      return 'Getting boards list';
     case 'select_port':
       return 'Selecting port';
-    case 'get_boards_list':
-      return 'Getting boards list';
-    case 'get_ports_list':
+    case 'get_ports':
       return 'Getting ports list';
     case 'add_board_url':
       return 'Adding board URL';

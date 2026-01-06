@@ -67,40 +67,6 @@ export const spectreWarn = console.warn.bind(console);
 export const spectreError = console.error.bind(console);
 
 /**
- * Board information interface.
- * Represents an Arduino board with its fully qualified board name (FQBN).
- */
-export interface BoardInfo {
-  name: string;
-  fqbn: string;
-  port?: PortInfo;
-}
-
-/**
- * Port information interface.
- * Represents a communication port (serial, network, etc.).
- */
-export interface PortInfo {
-  address: string;
-  protocol: string;
-  protocolLabel?: string;
-  properties?: Record<string, string>;
-  hardwareId?: string;
-}
-
-/**
- * Detected port interface.
- * Represents a port detected by the Arduino CLI with associated board information.
- */
-export interface DetectedPort {
-  port: PortInfo;
-  matchingBoards?: Array<{
-    name: string;
-    fqbn: string;
-  }>;
-}
-
-/**
  * Board and port validation result.
  * Returned by validation methods to indicate configuration status.
  * Uses 'any' for board/port to accommodate different Arduino types.

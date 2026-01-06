@@ -48,18 +48,6 @@ export interface FunctionCall {
 }
 
 /**
- * Result of a function call execution.
- */
-export interface FunctionResponse {
-  name: string;
-  response: {
-    success: boolean;
-    result?: string;
-    error?: string;
-  };
-}
-
-/**
  * Request contract for Spectre AI generation.
  *
  * @property prompt - The user's input text or question

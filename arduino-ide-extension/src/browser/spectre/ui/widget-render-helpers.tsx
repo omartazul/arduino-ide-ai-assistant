@@ -6,6 +6,7 @@
  */
 import * as React from '@theia/core/shared/react';
 import { AgentTask } from '../agent/task-helpers';
+import type { ConversationMemory } from '../memory/memory-types';
 
 /**
  * Chat message interface for message rendering.
@@ -23,13 +24,13 @@ export interface ChatSession {
   id: number;
   title: string;
   messages: ChatMessage[];
-  memory?: any;
+  memory?: ConversationMemory;
 }
 
 /**
  * Props for task list rendering.
  */
-export interface TaskListProps {
+interface TaskListProps {
   tasks: AgentTask[];
   tasksExpanded: boolean;
   tasksClosed: boolean;
@@ -40,7 +41,7 @@ export interface TaskListProps {
 /**
  * Props for session tabs rendering.
  */
-export interface SessionTabsProps {
+interface SessionTabsProps {
   sessions: ChatSession[];
   active: number;
   onSetActive: (index: number) => void;
@@ -49,14 +50,14 @@ export interface SessionTabsProps {
 /**
  * Props for empty state rendering.
  */
-export interface EmptyStateProps {
+interface EmptyStateProps {
   isAgentMode: boolean;
 }
 
 /**
  * Props for message rendering.
  */
-export interface MessageProps {
+interface MessageProps {
   message: ChatMessage;
   idx: number;
   sessionLength: number;
@@ -67,7 +68,7 @@ export interface MessageProps {
 /**
  * Props for error message rendering.
  */
-export interface ErrorMessageProps {
+interface ErrorMessageProps {
   error?: string;
   retryable?: boolean;
   onRetry: () => void;
@@ -76,7 +77,7 @@ export interface ErrorMessageProps {
 /**
  * Props for character limit warning rendering.
  */
-export interface CharLimitWarningProps {
+interface CharLimitWarningProps {
   inputLength: number;
   charLimit: number;
   busy: boolean;
@@ -85,7 +86,7 @@ export interface CharLimitWarningProps {
 /**
  * Props for input area rendering.
  */
-export interface InputAreaProps {
+interface InputAreaProps {
   input: string;
   busy: boolean;
   mode: 'agent' | 'basic';
@@ -103,7 +104,7 @@ export interface InputAreaProps {
 /**
  * Checks if task list should be hidden.
  */
-export function shouldHideTaskList(tasks: AgentTask[], tasksClosed: boolean): boolean {
+function shouldHideTaskList(tasks: AgentTask[], tasksClosed: boolean): boolean {
   return !tasks || tasks.length === 0 || tasksClosed;
 }
 
@@ -168,7 +169,7 @@ export function renderTaskList(props: TaskListProps): React.ReactNode {
 /**
  * Renders a single task item.
  */
-export function renderTask(task: AgentTask): React.ReactNode {
+function renderTask(task: AgentTask): React.ReactNode {
   let statusIcon = '';
   let statusClass = '';
 
@@ -386,7 +387,7 @@ export function renderCharacterLimitWarning(props: CharLimitWarningProps): React
 /**
  * Gets CSS class for character count status chip.
  */
-export function getCharCountStatusClass(inputLength: number, charLimit: number): string {
+function getCharCountStatusClass(inputLength: number, charLimit: number): string {
   if (inputLength > charLimit) {
     return 'error';
   }
@@ -399,7 +400,7 @@ export function getCharCountStatusClass(inputLength: number, charLimit: number):
 /**
  * Gets CSS class for send button based on state.
  */
-export function getSendButtonClass(busy: boolean, inputLength: number, charLimit: number): string {
+function getSendButtonClass(busy: boolean, inputLength: number, charLimit: number): string {
   if (busy) {
     return 'spectre-inline-send spectre-stop';
   }
@@ -412,7 +413,7 @@ export function getSendButtonClass(busy: boolean, inputLength: number, charLimit
 /**
  * Gets aria-label for send button based on state.
  */
-export function getSendButtonAriaLabel(busy: boolean, inputLength: number, charLimit: number): string {
+function getSendButtonAriaLabel(busy: boolean, inputLength: number, charLimit: number): string {
   if (inputLength > charLimit) {
     return `Message too long (${inputLength}/${charLimit})`;
   }
@@ -422,7 +423,7 @@ export function getSendButtonAriaLabel(busy: boolean, inputLength: number, charL
 /**
  * Gets title tooltip for send button based on state.
  */
-export function getSendButtonTitle(busy: boolean, inputLength: number, charLimit: number): string {
+function getSendButtonTitle(busy: boolean, inputLength: number, charLimit: number): string {
   if (inputLength > charLimit) {
     return `Message exceeds ${charLimit.toLocaleString()} character limit by ${(
       inputLength - charLimit
@@ -434,7 +435,7 @@ export function getSendButtonTitle(busy: boolean, inputLength: number, charLimit
 /**
  * Gets icon/text for send button based on state.
  */
-export function getSendButtonContent(busy: boolean, inputLength: number, charLimit: number): string {
+function getSendButtonContent(busy: boolean, inputLength: number, charLimit: number): string {
   if (busy) return '■';
   if (inputLength > charLimit) return '⚠';
   return '➤';

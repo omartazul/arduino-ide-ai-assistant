@@ -11,7 +11,7 @@ import { spectreLog, spectreWarn } from '../../../common/protocol/spectre-types'
 /**
  * Cached board data for efficient lookups.
  */
-export interface CachedBoard {
+interface CachedBoard {
   board: any;
   normalizedName: string;
   normalizedWords: string[];
@@ -21,7 +21,7 @@ export interface CachedBoard {
 /**
  * Result type for board search operations.
  */
-export interface BoardSearchResult {
+interface BoardSearchResult {
   board: any | null;
   matchType?: 'exact' | 'fuzzy';
 }
@@ -29,7 +29,7 @@ export interface BoardSearchResult {
 /**
  * Board configuration option.
  */
-export interface BoardConfigOption {
+interface BoardConfigOption {
   option: string;
   selectedValue: string;
 }
@@ -394,7 +394,7 @@ export class BoardHelper {
 /**
  * Configuration service interface for board URL operations.
  */
-export interface ConfigService {
+interface ConfigService {
   getConfiguration(): Promise<{ config?: any }>;
   setConfiguration(config: any): Promise<void>;
 }
@@ -402,41 +402,14 @@ export interface ConfigService {
 /**
  * Command service interface for board URL operations.
  */
-export interface CommandService {
+interface CommandService {
   executeCommand(command: string, ...args: any[]): Promise<any>;
-}
-
-/**
- * Parameters for adding a board URL.
- */
-export interface AddBoardUrlParams {
-  configService: ConfigService;
-  commandService: CommandService;
-  url: string;
-  updateIndexFn: (timeout: number) => Promise<{ success: boolean; error?: string }>;
-}
-
-/**
- * Parameters for removing board URLs.
- */
-export interface RemoveBoardUrlParams {
-  configService: ConfigService;
-  commandService: CommandService;
-  urlOrName: string;
-}
-
-/**
- * Result of adding a board URL.
- */
-export interface AddUrlResult {
-  urlAlreadyExists: boolean;
-  updateResult: { success: boolean; error?: string };
 }
 
 /**
  * Parameters for formatting board URL messages.
  */
-export interface BoardUrlMessageParams {
+interface BoardUrlMessageParams {
   type: 'multipleRemoval' | 'singleRemoval' | 'addResult' | 'noMatch';
   url?: string;
   urlsToRemove?: string[];

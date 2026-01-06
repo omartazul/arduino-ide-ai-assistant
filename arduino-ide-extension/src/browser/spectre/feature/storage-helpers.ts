@@ -10,7 +10,7 @@ import { spectreWarn } from '../../../common/protocol/spectre-types';
 /**
  * Storage interface for chat sessions and tracking data.
  */
-export interface StorageService {
+interface StorageService {
   setData(key: string, value: any): Promise<void>;
   getData<T>(key: string): Promise<T | undefined>;
 }
@@ -18,7 +18,7 @@ export interface StorageService {
 /**
  * Parameters for persisting all storage data.
  */
-export interface PersistAllParams {
+interface PersistAllParams {
   storage: StorageService;
   sketchKey: string | undefined;
   sessions: any[];

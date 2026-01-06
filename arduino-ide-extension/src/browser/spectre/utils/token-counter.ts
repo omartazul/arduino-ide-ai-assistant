@@ -10,8 +10,6 @@
  * @author Tazul Islam
  */
 
-import { TokenCount } from '../memory/memory-types';
-
 /**
  * Token estimation based on content type.
  * Calibrated against actual Gemini tokenization patterns.
@@ -106,67 +104,6 @@ export class TokenCounter {
   }
 
   /**
-   * Counts tokens in a conversation with detailed breakdown.
-   *
-   * @param recentMessages Recent messages in rolling buffer
-   * @param memoryBankSummaries Summaries from memory bank
-   * @param currentPrompt Current user input
-   * @param systemPrompt System prompt or additional context
-   * @returns Token count with breakdown
-   */
-  static countConversation(
-    recentMessages: Array<{ text: string; role: 'user' | 'assistant' }>,
-    memoryBankSummaries: Array<{ summary: string }>,
-    currentPrompt: string,
-    systemPrompt?: string
-  ): TokenCount {
-    let recentTokens = 0;
-    let memoryTokens = 0;
-
-    // Count recent messages
-    for (const msg of recentMessages) {
-      const contentType = msg.role === 'assistant' ? 'natural' : 'mixed';
-      recentTokens += this.estimate(msg.text, contentType);
-    }
-
-    // Count memory bank summaries
-    for (const summary of memoryBankSummaries) {
-      memoryTokens += this.estimate(summary.summary, 'natural');
-    }
-
-    const currentTokens = this.estimate(currentPrompt, 'mixed');
-    const systemTokens = systemPrompt
-      ? this.estimate(systemPrompt, 'natural')
-      : 0;
-
-    return {
-      total: recentTokens + memoryTokens + currentTokens + systemTokens,
-      breakdown: {
-        recentMessages: recentTokens,
-        memoryBank: memoryTokens,
-        currentPrompt: currentTokens,
-        systemPrompt: systemTokens,
-      },
-    };
-  }
-
-  /**
-   * Estimates tokens for a sketch file with language detection.
-   */
-  static estimateSketchFile(filename: string, content: string): number {
-    const ext = filename.split('.').pop()?.toLowerCase();
-
-    const contentType =
-      ext === 'ino' || ext === 'cpp' || ext === 'h'
-        ? 'code'
-        : ext === 'json'
-        ? 'json'
-        : 'mixed';
-
-    return this.estimate(content, contentType);
-  }
-
-  /**
    * Fast approximation for quick checks (when precision isn't critical).
    * Uses simple 4 chars/token heuristic.
    */
@@ -186,24 +123,5 @@ export class TokenCounter {
       return `${Math.round(count / 1_000)}k`;
     }
   }
-
-  /**
-   * Calculates percentage of budget used.
-   */
-  static percentageUsed(used: number, cap: number): number {
-    return Math.round((used / cap) * 100);
-  }
 }
 
-/**
- * Decorator to cache token counts on objects with estimatedTokens field.
- */
-export function withTokenCount<
-  T extends { text?: string; summary?: string; estimatedTokens?: number }
->(obj: T, contentType?: 'code' | 'json' | 'natural' | 'mixed'): T {
-  if (obj.estimatedTokens === undefined) {
-    const text = obj.text || obj.summary || '';
-    obj.estimatedTokens = TokenCounter.estimate(text, contentType);
-  }
-  return obj;
-}

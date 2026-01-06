@@ -11,7 +11,6 @@
 interface ModelConfig {
   characterLimit: number;
   rpmLimit: number;
-  displayName: string;
 }
 
 /**
@@ -21,24 +20,20 @@ const MODEL_CONFIGS: Record<string, ModelConfig> = {
   'gemini-2.0-flash-exp': {
     characterLimit: 8192,
     rpmLimit: 10,
-    displayName: 'Gemini 2.0 Flash',
   },
   'gemini-2.5-flash-lite': {
     characterLimit: 8192,
     rpmLimit: 15,
-    displayName: 'Gemini 2.5 Flash Lite',
   },
   'gemini-1.5-flash': {
     characterLimit: 8192,
     rpmLimit: 15,
-    displayName: 'Gemini 1.5 Flash',
   },
 };
 
 const DEFAULT_CONFIG: ModelConfig = {
   characterLimit: 8192,
   rpmLimit: 10,
-  displayName: 'Default Model',
 };
 
 /**
@@ -60,27 +55,6 @@ export function getCharacterLimit(model: string): number {
  */
 export function getRpmLimit(model: string): number {
   return getModelConfig(model).rpmLimit;
-}
-
-/**
- * Checks if model is a flash model.
- */
-export function isFlashModel(model: string): boolean {
-  return model.includes('flash');
-}
-
-/**
- * Checks if model is flash-lite variant.
- */
-export function isFlashLiteModel(model: string): boolean {
-  return model === 'gemini-2.5-flash-lite';
-}
-
-/**
- * Gets model display name.
- */
-export function getModelName(model: string): string {
-  return getModelConfig(model).displayName;
 }
 
 /**

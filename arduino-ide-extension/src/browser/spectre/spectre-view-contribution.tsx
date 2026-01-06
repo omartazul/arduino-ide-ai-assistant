@@ -19,7 +19,7 @@ import { FrontendApplicationContribution } from '@theia/core/lib/browser/fronten
  * Namespace containing all Spectre AI assistant command definitions.
  * These commands control the Spectre widget visibility and chat management.
  */
-export namespace SpectreCommands {
+namespace SpectreCommands {
   export const TOGGLE: Command = { id: 'spectre.toggle', label: 'Spectre' };
   export const NEW_CHAT: Command = {
     id: 'spectre.newChat',

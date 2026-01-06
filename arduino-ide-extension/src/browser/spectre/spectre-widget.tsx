@@ -1,34 +1,6 @@
 /**
- * Main widget for Spectre AI assistant.
- * Provides chat interface with basic Q&A and autonomous agent mode.
- *
- * @author Tazul Islam
- * 
- * ARCHITECTURE:
- * Complex React widget with dependency injection for Arduino IDE integration.
- * Manages AI chat interface, agent mode automation, and IDE command execution.
- * 
- * Key Features:
- * - Dual mode: Basic Q&A and autonomous agent execution
- * - 19 agent actions (create sketch, verify, upload, board/library management)
- * - Dynamic memory system with conversation summarization
- * - Real-time streaming responses with quota tracking
- * - 18 helper modules for separation of concerns
- * 
- * Code Quality (December 2025):
- * - File size: ~5,400 lines (reduced from 7,627 via helper extraction)
- * - Compilation: 0 errors, 0 warnings ✓
- * - Debug logging: Removed (production-ready)
- * - Type safety: 10+ parameter objects for complex operations
- * - Dependencies: 15+ injected services (BoardsService, LibraryService, etc.)
- * 
- * CodeScene Warnings (Acceptable):
- * - "Number of Functions in a Single Module" - Agent actions require all dependencies
- * - "Primitive Obsession" - Mitigated with parameter objects where appropriate
- * 
- * The high method count is intentional: agent actions need access to all injected
- * dependencies. Extracting to separate services would require massive parameter
- * passing and harm maintainability.
+ * Main widget for the Spectre AI assistant.
+ * Provides a chat UI for basic Q&A and an optional agent mode.
  */
 
 import React, { ChangeEvent } from '@theia/core/shared/react';
@@ -51,7 +23,7 @@ import {
   ValidationResult,
 } from '../../common/protocol/spectre-types';
 import { BoardHelper, BoardUrlHelper } from './board/board-helpers';
-import { UploadHelper, COMPILATION_ERROR_PATTERNS, UPLOAD_ERROR_PATTERNS } from './feature/upload-helpers';
+import { UploadHelper } from './feature/upload-helpers';
 import { UIHelper } from './ui/ui-helpers';
 import { MemoryHelper } from './memory/memory-helpers';
 import { StorageHelper } from './feature/storage-helpers';
@@ -62,6 +34,8 @@ import * as TaskHelpers from './agent/task-helpers';
 import * as ConfigHelpers from './utils/config-helpers';
 import * as WidgetRenderHelpers from './ui/widget-render-helpers';
 import * as AgentExecutionHelpers from './agent/agent-execution-helpers';
+import type { ChatMessage, ChatSession } from './ui/widget-render-helpers';
+import type { AgentTask } from './agent/task-helpers';
 
 /**
  * Parameters for function calling mode.
@@ -147,15 +121,6 @@ interface BoardConfigParams {
 }
 
 /**
- * Parameters for markdown rendering operations.
- * Provides type safety for rendering components.
- */
-interface RenderingParams {
-  text: string;
-  key: string;
-}
-
-/**
  * Parameters for memory comparison operations.
  * Encapsulates memory update decision logic.
  */
@@ -220,29 +185,7 @@ import { ConversationMemory, RawMessage } from './memory/memory-types';
 import { TokenCounter } from './utils/token-counter';
 import { AgentLibraryHelper } from './agent/agent-helpers';
 
-let ReactMarkdownLazy: any;
-
-/**
- * Represents a single message in a chat conversation.
- * @deprecated Use RawMessage from memory-types.ts instead.
- * Kept for backwards compatibility during migration.
- */
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  text: string;
-}
-
-/**
- * Represents a complete chat session with the AI assistant.
- * Now includes dynamic memory management with rolling buffer and summarization.
- */
-interface ChatSession {
-  id: number;
-  title: string;
-  messages: ChatMessage[]; // Legacy field, migrated to ConversationMemory
-  memory?: ConversationMemory; // New memory system
-}
+// ChatMessage/ChatSession types live in `ui/widget-render-helpers.tsx`.
 
 /**
  * Tracks individual API requests for quota and rate limit monitoring.
@@ -261,21 +204,6 @@ interface DailyTracker {
   date: string; // YYYY-MM-DD in Pacific Time
   requestCount: number;
   tokenCount: number;
-}
-
-/**
- * Task tracking for agent mode workflow (inspired by GitHub Copilot).
- * Tracks individual autonomous actions the AI performs like creating sketches,
- * verifying code, uploading to boards, etc.
- */
-interface AgentTask {
-  id: string;
-  description: string;
-  status: 'pending' | 'in-progress' | 'completed' | 'failed';
-  startTime?: number;
-  endTime?: number;
-  error?: string;
-  actionType: string; // 'create_sketch', 'verify_sketch', etc.
 }
 
 /**
@@ -322,7 +250,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
   @inject(MemoryManager) private readonly memoryManager!: MemoryManager;
 
   // Cache normalized board data for O(1) lookups
-  private boardSearchCache: Map<string, import('./board/board-helpers').CachedBoard> | null = null;
+  private boardSearchCache: ReturnType<typeof BoardHelper.buildBoardCache> | null = null;
 
   private stateData: {
     sessions: ChatSession[];
@@ -706,7 +634,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
       return await this.createNewSketchWithCode(code);
     }
 
-    return `✅ COMPLETED: New blank sketch created and ready in the editor. DO NOT call create_sketch again. If you need to add code, use modify_sketch.`;
+    return `✅ COMPLETED: New blank sketch created and ready in the editor. DO NOT call create_sketch again. If you need to add code, use create_sketch with the full updated sketch code.`;
   }
 
   private async handleExistingSketch(currentSketch: any, code?: string): Promise<string> {
@@ -834,23 +762,6 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
    * Returns error details if found, or null if no errors detected.
    */
 
-  /**
-   * Scans lines for errors using provided patterns.
-   */
-  private scanLinesForErrors(
-    lines: string[],
-    patterns: RegExp[]
-  ): string[] {
-    return UploadHelper.scanLinesForErrors(lines, patterns);
-  }
-
-  /**
-   * Checks for potential error keywords in lines.
-   */
-  private findPotentialErrors(lines: string[]): string[] {
-    return UploadHelper.findPotentialErrors(lines);
-  }
-
   private async checkCompilationErrors(): Promise<string | null> {
     try {
       const content = await this.readArduinoOutputChannel();
@@ -860,14 +771,9 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
         -SKETCH_CONSTANTS.RECENT_OUTPUT_LINE_COUNT
       );
 
-      const uploadErrorLines = this.scanLinesForErrors(
-        recentLines,
-        UPLOAD_ERROR_PATTERNS
-      );
-      const compilationErrorLines = this.scanLinesForErrors(
-        recentLines,
-        COMPILATION_ERROR_PATTERNS
-      );
+      const uploadErrorLines = UploadHelper.scanForUploadErrors(recentLines);
+      const compilationErrorLines =
+        UploadHelper.scanForCompilationErrors(recentLines);
 
       if (uploadErrorLines.length > 0) {
         return uploadErrorLines.join('\n');
@@ -877,7 +783,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
         return compilationErrorLines.join('\n');
       }
 
-      const potentialErrors = this.findPotentialErrors(recentLines);
+      const potentialErrors = UploadHelper.findPotentialErrors(recentLines);
 
       if (potentialErrors.length > 0) {
         return potentialErrors.join('\n');
@@ -2511,16 +2417,18 @@ ${platformsList}
     };
     // Defer to next frame to ensure DOM is ready
     requestAnimationFrame(tryFocus);
-    if (!ReactMarkdownLazy) {
+    if (RenderingHelpers.ReactMarkdownLazy === undefined) {
       try {
-        ReactMarkdownLazy = (await import('react-markdown')).default;
+        RenderingHelpers.setReactMarkdownLazy(
+          (await import('react-markdown')).default
+        );
         this.update();
       } catch (error) {
         spectreWarn(
           'Failed to load react-markdown, using fallback rendering:',
           error
         );
-        ReactMarkdownLazy = null; // Signal to use fallback
+        RenderingHelpers.setReactMarkdownLazy(null); // Signal to use fallback
         this.update();
       }
     }
@@ -2710,141 +2618,33 @@ ${platformsList}
     const isBasicMode = this.prefs['arduino.spectre.mode'] !== 'agent';
 
     if (codeBlocks.length > 0 && isBasicMode) {
-      // Custom rendering with integrated code blocks
-      return this.renderMessageWithCodeBlocks(text, codeBlocks);
-    } else {
-      // Regular markdown rendering - same for streaming and completed
-      // React-markdown is optimized for incremental updates
-      return ReactMarkdownLazy && ReactMarkdownLazy !== null ? (
-        <ReactMarkdownLazy>{text}</ReactMarkdownLazy>
-      ) : (
-        <pre style={{ whiteSpace: 'pre-wrap' }}>{text}</pre>
+      const parts = RenderingHelpers.processExplicitCodeBlocks(
+        text,
+        codeBlocks,
+        this.renderSingleCodeBlock.bind(this)
       );
-    }
-  }
 
-  /**
-   * Renders text content with markdown.
-   */
-  private renderMarkdownText(params: RenderingParams): React.ReactNode {
-    const { text, key } = params;
-    return (
-      <div key={key} style={{ marginBottom: '8px' }}>
-        {ReactMarkdownLazy && ReactMarkdownLazy !== null ? (
-          <ReactMarkdownLazy>{text}</ReactMarkdownLazy>
-        ) : (
-          <pre>{text}</pre>
-        )}
-      </div>
-    );
-  }
-
-  /**
-   * Processes explicit code blocks from text.
-   */
-  private processExplicitCodeBlocks(
-    text: string,
-    codeBlocks: Array<{
-      code: string;
-      type: 'block' | 'inline';
-      language?: string;
-    }>
-  ): React.ReactNode[] {
-    const codeBlockRegex = /```(?:cpp|c|arduino|ino)?\n?([\s\S]*?)\n?```/g;
-    let lastIndex = 0;
-    const parts: React.ReactNode[] = [];
-    let blockIndex = 0;
-
-    let match;
-    while (
-      (match = codeBlockRegex.exec(text)) !== null &&
-      blockIndex < codeBlocks.length
-    ) {
-      const beforeCode = text.slice(lastIndex, match.index);
-
-      // Add text before code block
-      if (beforeCode.trim()) {
-        parts.push(this.renderMarkdownText({ text: beforeCode, key: `text-${blockIndex}` }));
+      if (parts.length === 0 && codeBlocks.length > 0) {
+        return (
+          <div>
+            {RenderingHelpers.renderInlineCodeBlocks(
+              text,
+              codeBlocks,
+              this.renderSingleCodeBlock.bind(this)
+            )}
+          </div>
+        );
       }
 
-      // Add code block
-      const codeBlock = codeBlocks[blockIndex];
-      if (codeBlock && codeBlock.code.trim() === match[1].trim()) {
-        parts.push(this.renderSingleCodeBlock(codeBlock, blockIndex));
-        blockIndex++;
-      }
-
-      lastIndex = match.index + match[0].length;
+      return <div>{parts}</div>;
     }
 
-    // Add remaining text after last code block
-    const remainingText = text.slice(lastIndex);
-    if (remainingText.trim()) {
-      parts.push(
-        <div key="text-final" style={{ marginTop: '8px' }}>
-          {ReactMarkdownLazy && ReactMarkdownLazy !== null ? (
-            <ReactMarkdownLazy>{remainingText}</ReactMarkdownLazy>
-          ) : (
-            <pre>{remainingText}</pre>
-          )}
-        </div>
-      );
-    }
-
-    return parts;
-  }
-
-  /**
-   * Renders inline code blocks when no explicit blocks found.
-   */
-  private renderInlineCodeBlocks(
-    text: string,
-    codeBlocks: Array<{
-      code: string;
-      type: 'block' | 'inline';
-      language?: string;
-    }>
-  ): React.ReactNode[] {
-    const parts: React.ReactNode[] = [];
-
-    parts.push(
-      <div key="text-main">
-        {ReactMarkdownLazy && ReactMarkdownLazy !== null ? (
-          <ReactMarkdownLazy>{text}</ReactMarkdownLazy>
-        ) : (
-          <pre>{text}</pre>
-        )}
-      </div>
+    const ReactMarkdown = RenderingHelpers.ReactMarkdownLazy;
+    return ReactMarkdown ? (
+      <ReactMarkdown>{text}</ReactMarkdown>
+    ) : (
+      <pre style={{ whiteSpace: 'pre-wrap' }}>{text}</pre>
     );
-
-    // Add the detected Arduino code blocks
-    codeBlocks.forEach((codeBlock, index) => {
-      parts.push(this.renderSingleCodeBlock(codeBlock, index));
-    });
-
-    return parts;
-  }
-
-  /**
-   * Renders message text with Arduino code blocks replaced by custom components
-   */
-  private renderMessageWithCodeBlocks(
-    text: string,
-    codeBlocks: Array<{
-      code: string;
-      type: 'block' | 'inline';
-      language?: string;
-    }>
-  ): React.ReactNode {
-    // Process explicit code blocks
-    const parts = this.processExplicitCodeBlocks(text, codeBlocks);
-
-    // If no explicit code blocks were found, render inline code blocks
-    if (parts.length === 0 && codeBlocks.length > 0) {
-      return <div>{this.renderInlineCodeBlocks(text, codeBlocks)}</div>;
-    }
-
-    return <div>{parts}</div>;
   }
 
   /**

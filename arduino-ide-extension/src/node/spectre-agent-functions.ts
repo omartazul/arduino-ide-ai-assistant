@@ -282,10 +282,3 @@ export const AGENT_FUNCTIONS: FunctionDeclaration[] = [
   },
 ];
 
-/**
- * Maps function names to their execution handlers.
- * This will be used by the backend to actually execute function calls.
- */
-export type FunctionExecutor = (
-  args: Record<string, any>
-) => Promise<{ success: boolean; result?: string; error?: string }>;
