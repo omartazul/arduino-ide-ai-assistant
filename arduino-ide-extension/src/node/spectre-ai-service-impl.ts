@@ -584,18 +584,32 @@ export class SpectreAiServiceImpl implements SpectreAiService {
    */
   private runQueueCycle(): void {
     this.cleanWindows();
-    let started = false;
-    if (this.queue.length) {
-      const next = this.queue[0];
-      if (this.canStartNow(next.model, next.reservationTokens)) {
-        this.queue.shift();
-        started = true;
-        this.startRequest(next).catch((err) => next.reject(err));
-      }
+    const started = this.tryStartNextQueuedRequest();
+    if (started) {
+      this.pushQuotaUpdate();
     }
-    if (started) this.pushQuotaUpdate();
-    this.processing = false;
 
+    this.processing = false;
+    this.updateQueueTicker();
+    this.ensureDecayTicker();
+  }
+
+  private tryStartNextQueuedRequest(): boolean {
+    if (!this.queue.length) {
+      return false;
+    }
+
+    const next = this.queue[0];
+    if (!this.canStartNow(next.model, next.reservationTokens)) {
+      return false;
+    }
+
+    this.queue.shift();
+    this.startRequest(next).catch((err) => next.reject(err));
+    return true;
+  }
+
+  private updateQueueTicker(): void {
     if (this.queue.length) {
       if (!this.queueTicker) {
         this.queueTicker = setInterval(() => {
@@ -603,11 +617,13 @@ export class SpectreAiServiceImpl implements SpectreAiService {
           this.scheduleQueueProcessing();
         }, 1000);
       }
-    } else if (this.queueTicker) {
+      return;
+    }
+
+    if (this.queueTicker) {
       clearInterval(this.queueTicker);
       this.queueTicker = undefined;
     }
-    this.ensureDecayTicker();
   }
 
   /**
@@ -706,30 +722,40 @@ export class SpectreAiServiceImpl implements SpectreAiService {
   }
 
   private pushQuotaUpdate(modelForRpm?: string): void {
-    const now = Date.now();
     this.cleanWindows();
-    // Use explicitly provided model, or next queued model, or last used model
-    const model = modelForRpm || this.queue[0]?.model || this.lastUsedModel;
+    const update = this.buildQuotaUpdate(Date.now(), modelForRpm);
+    this.notifyQuotaUpdate(update);
+    this.ensureDecayTicker();
+  }
+
+  private resolveQuotaModel(modelForRpm?: string): string {
+    return modelForRpm || this.queue[0]?.model || this.lastUsedModel;
+  }
+
+  private countRecentCalls(model: string, now: number): number {
+    return (this.recentCalls[model] || []).filter((t) => now - t < ROLLING_WINDOW_MS).length;
+  }
+
+  private buildQuotaUpdate(now: number, modelForRpm?: string): SpectreQuotaUpdate {
+    const model = this.resolveQuotaModel(modelForRpm);
     const rpmLimit = this.isFlashLite(model) ? RPM_FLASH_LITE : RPM_FLASH;
-    const rpmUsed = (this.recentCalls[model] || []).filter(
-      (t) => now - t < ROLLING_WINDOW_MS
-    ).length;
-    const update: SpectreQuotaUpdate = {
+    const rpmUsed = this.countRecentCalls(model, now);
+    return {
       usedTokens: this.currentUsedTokens(),
       capacity: TOKEN_CAPACITY_PER_MINUTE,
       rpmUsed,
       rpmLimit,
       queued: this.queue.length,
-      nextAvailableMs: this.queue.length
-        ? this.computeNextAvailabilityMs()
-        : now,
+      nextAvailableMs: this.queue.length ? this.computeNextAvailabilityMs() : now,
     };
+  }
+
+  private notifyQuotaUpdate(update: SpectreQuotaUpdate): void {
     try {
       this.client?.onQuota(update);
     } catch (err) {
       spectreWarn('Failed to notify client of quota update:', err);
     }
-    this.ensureDecayTicker();
   }
 
   private hasActiveTracking(): boolean {
@@ -856,78 +882,92 @@ export class SpectreAiServiceImpl implements SpectreAiService {
     const rpmCutoff = now - ROLLING_WINDOW_MS;
     const pacificMidnight = getPacificMidnight();
 
-    // Track if any cleaning was done to know if we need to rebuild cache
-    let needRebuildCache = false;
+    const didClean =
+      this.cleanTokenWindows(rpmCutoff) ||
+      this.cleanRecentCalls(rpmCutoff) ||
+      this.cleanDailyCalls(pacificMidnight);
 
-    // Clean token windows (TPM) - only if 30%+ entries are expired
+    if (didClean) {
+      this.rebuildCaches(rpmCutoff, pacificMidnight);
+    } else {
+      this.ensureCachesInitialized(rpmCutoff, pacificMidnight);
+    }
+  }
+
+  private cleanTokenWindows(rpmCutoff: number): boolean {
+    let changed = false;
     for (const model in this.tokenWindows) {
       const window = this.tokenWindows[model];
-      if (this.shouldCleanWindow(window, rpmCutoff, (e) => e.time < rpmCutoff)) {
-        this.tokenWindows[model] = window.filter((e: TokenUsage) => e.time >= rpmCutoff);
-        needRebuildCache = true;
-        if (this.tokenWindows[model].length === 0) {
-          delete this.tokenWindows[model];
-        }
+      if (!this.shouldCleanWindow(window, rpmCutoff, (e) => e.time < rpmCutoff)) {
+        continue;
+      }
+
+      this.tokenWindows[model] = window.filter((e: TokenUsage) => e.time >= rpmCutoff);
+      changed = true;
+      if (this.tokenWindows[model].length === 0) {
+        delete this.tokenWindows[model];
       }
     }
+    return changed;
+  }
 
-    // Clean RPM tracking - only if 30%+ entries are expired
+  private cleanRecentCalls(rpmCutoff: number): boolean {
+    let changed = false;
     for (const k in this.recentCalls) {
       const list = this.recentCalls[k];
-      if (this.shouldCleanWindow(list, rpmCutoff, (t) => t < rpmCutoff)) {
-        this.recentCalls[k] = list.filter((t) => t >= rpmCutoff);
-        needRebuildCache = true;
-        if (this.recentCalls[k].length === 0) {
-          delete this.recentCalls[k];
-        }
+      if (!this.shouldCleanWindow(list, rpmCutoff, (t) => t < rpmCutoff)) {
+        continue;
+      }
+
+      this.recentCalls[k] = list.filter((t) => t >= rpmCutoff);
+      changed = true;
+      if (this.recentCalls[k].length === 0) {
+        delete this.recentCalls[k];
       }
     }
+    return changed;
+  }
 
-    // Clean RPD tracking - only if 30%+ entries are expired
+  private cleanDailyCalls(pacificMidnight: number): boolean {
+    let changed = false;
     for (const k in this.dailyCalls) {
       const list = this.dailyCalls[k];
-      if (this.shouldCleanWindow(list, pacificMidnight, (t) => t < pacificMidnight)) {
-        this.dailyCalls[k] = list.filter((t) => t >= pacificMidnight);
-        needRebuildCache = true;
-        if (this.dailyCalls[k].length === 0) {
-          delete this.dailyCalls[k];
-        }
+      if (!this.shouldCleanWindow(list, pacificMidnight, (t) => t < pacificMidnight)) {
+        continue;
+      }
+
+      this.dailyCalls[k] = list.filter((t) => t >= pacificMidnight);
+      changed = true;
+      if (this.dailyCalls[k].length === 0) {
+        delete this.dailyCalls[k];
+      }
+    }
+    return changed;
+  }
+
+  private rebuildCaches(rpmCutoff: number, pacificMidnight: number): void {
+    this.cachedRpmLists = Object.create(null);
+    this.cachedDailyLists = Object.create(null);
+
+    for (const k in this.recentCalls) {
+      this.cachedRpmLists[k] = this.recentCalls[k].filter((t) => t >= rpmCutoff);
+    }
+
+    for (const k in this.dailyCalls) {
+      this.cachedDailyLists[k] = this.dailyCalls[k].filter((t) => t >= pacificMidnight);
+    }
+  }
+
+  private ensureCachesInitialized(rpmCutoff: number, pacificMidnight: number): void {
+    if (Object.keys(this.cachedRpmLists).length === 0) {
+      for (const k in this.recentCalls) {
+        this.cachedRpmLists[k] = this.recentCalls[k].filter((t) => t >= rpmCutoff);
       }
     }
 
-    // Only rebuild cache if something changed
-    if (needRebuildCache) {
-      this.cachedRpmLists = Object.create(null);
-      this.cachedDailyLists = Object.create(null);
-
-      // Build cached filtered lists for O(1) access during quota checks
-      for (const k in this.recentCalls) {
-        this.cachedRpmLists[k] = this.recentCalls[k].filter(
-          (t) => t >= rpmCutoff
-        );
-      }
-
+    if (Object.keys(this.cachedDailyLists).length === 0) {
       for (const k in this.dailyCalls) {
-        this.cachedDailyLists[k] = this.dailyCalls[k].filter(
-          (t) => t >= pacificMidnight
-        );
-      }
-    } else {
-      // No cleanup needed - just update cache if it's empty (first call)
-      if (Object.keys(this.cachedRpmLists).length === 0) {
-        for (const k in this.recentCalls) {
-          this.cachedRpmLists[k] = this.recentCalls[k].filter(
-            (t) => t >= rpmCutoff
-          );
-        }
-      }
-
-      if (Object.keys(this.cachedDailyLists).length === 0) {
-        for (const k in this.dailyCalls) {
-          this.cachedDailyLists[k] = this.dailyCalls[k].filter(
-            (t) => t >= pacificMidnight
-          );
-        }
+        this.cachedDailyLists[k] = this.dailyCalls[k].filter((t) => t >= pacificMidnight);
       }
     }
   }
@@ -1269,10 +1309,19 @@ export class SpectreAiServiceImpl implements SpectreAiService {
     request?: SpectreAiRequest,
     disableGoogleSearch?: boolean
   ): Promise<SpectreAiResponse> {
-    // Wrap entire streaming call with timeout protection
+    // Wrap entire streaming call with timeout protection.
+    // Important: ensure timers/listeners are always cleaned up to avoid leaks.
+    let timeoutId: NodeJS.Timeout | undefined;
+    const onAbort = () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = undefined;
+      }
+    };
+
     const timeoutPromise = new Promise<never>((_, reject) => {
-      const timeoutId = setTimeout(() => {
-        controller.abort(); // Abort the request
+      timeoutId = setTimeout(() => {
+        controller.abort();
         reject(
           new Error(
             `Request timeout after ${
@@ -1281,12 +1330,10 @@ export class SpectreAiServiceImpl implements SpectreAiService {
           )
         );
       }, TIMING_CONSTANTS.REQUEST_TIMEOUT);
-
-      // Clear timeout if controller is aborted externally
-      controller.signal.addEventListener('abort', () => {
-        clearTimeout(timeoutId);
-      });
     });
+
+    // Clear timeout if controller is aborted externally
+    controller.signal.addEventListener('abort', onAbort);
 
     const executePromise = this.streamingCallImpl(
       sdk,
@@ -1302,7 +1349,12 @@ export class SpectreAiServiceImpl implements SpectreAiService {
       disableGoogleSearch
     );
 
-    return Promise.race([executePromise, timeoutPromise]);
+    try {
+      return await Promise.race([executePromise, timeoutPromise]);
+    } finally {
+      onAbort();
+      controller.signal.removeEventListener('abort', onAbort);
+    }
   }
 
   /**
@@ -1403,7 +1455,6 @@ export class SpectreAiServiceImpl implements SpectreAiService {
 
     // Track last chunk time for inactivity timeout
     let lastChunkTime = Date.now();
-    const inactivityTimer: NodeJS.Timeout | undefined = undefined;
 
     // Set up inactivity monitoring
     const inactivityTimerHandle = setInterval(() => {
@@ -1413,7 +1464,7 @@ export class SpectreAiServiceImpl implements SpectreAiService {
           `[Spectre AI] Stream inactive for ${inactiveMs}ms, aborting request`
         );
         controller.abort();
-        if (inactivityTimer) clearInterval(inactivityTimer);
+        clearInterval(inactivityTimerHandle);
       }
     }, 5000); // Check every 5 seconds
 
@@ -1671,32 +1722,80 @@ function isQuotaError(message: string): boolean {
   return /quota/i.test(message) && /exceed|exhaust/i.test(message);
 }
 
-function classifyError(err: any): {
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function getErrorStatus(err: any): number | string | undefined {
+  return (err && (err.status || err.code || err.statusCode)) as
+    | number
+    | string
+    | undefined;
+}
+
+type ClassifiedError = {
   retryable: boolean;
   category: 'auth' | 'rate' | 'quota' | 'canceled' | 'other';
   message: string;
-} {
-  const message = err instanceof Error ? err.message : String(err);
-  const status = (err && (err.status || err.code || err.statusCode)) as number | string | undefined;
+};
 
-  if (/abort/i.test(message))
-    return { retryable: false, category: 'canceled', message };
-  if (isAuthError(status, message))
-    return { retryable: false, category: 'auth', message };
-  if (isQuotaError(message))
-    return { retryable: false, category: 'quota', message };
-  if (isRateError(status, message))
-    return { retryable: true, category: 'rate', message };
+function classifyError(err: any): ClassifiedError {
+  const message = getErrorMessage(err);
+  const status = getErrorStatus(err);
 
-  // Gemini-specific error handling
-  if (/overloaded|503|Service Unavailable/i.test(message))
-    return { retryable: true, category: 'other', message: 'Gemini API overloaded - retrying...' };
-  if (/Failed to parse stream|parse.*stream/i.test(message))
-    return { retryable: true, category: 'other', message: 'Network stream error - retrying...' };
-  if (/Error fetching/i.test(message))
-    return { retryable: true, category: 'other', message: 'Network connection error - retrying...' };
+  const rules: Array<{ when: () => boolean; result: ClassifiedError }> = [
+    {
+      when: () => /abort/i.test(message),
+      result: { retryable: false, category: 'canceled', message },
+    },
+    {
+      when: () => isAuthError(status, message),
+      result: { retryable: false, category: 'auth', message },
+    },
+    {
+      when: () => isQuotaError(message),
+      result: { retryable: false, category: 'quota', message },
+    },
+    {
+      when: () => isRateError(status, message),
+      result: { retryable: true, category: 'rate', message },
+    },
+    // Gemini-specific error handling
+    {
+      when: () => /overloaded|503|Service Unavailable/i.test(message),
+      result: {
+        retryable: true,
+        category: 'other',
+        message: 'Gemini API overloaded - retrying...',
+      },
+    },
+    {
+      when: () => /Failed to parse stream|parse.*stream/i.test(message),
+      result: {
+        retryable: true,
+        category: 'other',
+        message: 'Network stream error - retrying...',
+      },
+    },
+    {
+      when: () => /Error fetching/i.test(message),
+      result: {
+        retryable: true,
+        category: 'other',
+        message: 'Network connection error - retrying...',
+      },
+    },
+    {
+      when: () => isServerError(status),
+      result: { retryable: true, category: 'other', message },
+    },
+  ];
 
-  if (isServerError(status))
-    return { retryable: true, category: 'other', message };
+  for (const rule of rules) {
+    if (rule.when()) {
+      return rule.result;
+    }
+  }
+
   return { retryable: false, category: 'other', message };
 }

@@ -68,6 +68,116 @@ Important files:
 - `arduino-ide-extension/src/common/protocol/` — interfaces and contracts
 - `arduino-ide-extension/src/node/` — server implementation
 
+### 3.1 Code map (frontend)
+
+This section is a practical map of the key modules in `arduino-ide-extension/src/browser/spectre/` and what they do.
+
+**Core UI & orchestration**
+- `spectre-widget.tsx`
+	- Owns the chat state machine: sessions, messages, active session selection, input state, busy/error states.
+	- Bridges IDE services (boards, ports, sketch, output channels, editor manager) to agent actions.
+	- Coordinates AI streaming, quota updates, request cancellation, and memory updates.
+	- Delegates smaller concerns into helper modules (rendering, parsing, board/library utilities, storage, memory).
+- `spectre-view-contribution.tsx`
+	- Registers the view, commands, toolbar buttons, and auto-creates the view on startup so the icon appears.
+
+**Streaming & secrets clients**
+- `spectre-ai-frontend-client.ts`
+	- Receives streaming deltas and completion events from the backend.
+	- Receives quota updates from the backend.
+- `spectre-secrets-frontend-client.ts`
+	- Receives API key status changes (has key / missing key) from the backend.
+
+**Agent mode helpers**
+- `agent/agent-execution-helpers.ts`
+	- Routes function-calling tool invocations (create/read/verify/upload sketch, board/port selection, install/uninstall) to the appropriate widget/backend handlers.
+	- Returns consistent `{ success, result?, error? }` shapes.
+- `agent/agent-helpers.ts`
+	- Strongly-typed, centralized library lookup/validation/message formatting for install/uninstall flows.
+- `agent/task-helpers.ts`
+	- Parses markdown checkbox task lists from agent responses into structured `AgentTask[]`.
+- `agent/response-cleaning.ts`
+	- Removes agent headers/iteration markers, suppresses redundant code blocks, strips task lists from chat text, and returns parsed tasks for the task panel.
+- `agent/function-call-runner.ts`
+	- Executes agent tool calls sequentially, logs progress into the assistant message, updates function-call history for loop detection, and appends function responses back into the conversation history.
+- `agent/loop-detector.ts`
+	- Implements loop detection (normalized and exact signature repeat + repeated-failure heuristic) and maintains the action history used during agent tool execution.
+- `agent/completion.ts`
+	- Encapsulates agent “task completion” detection and the standard completion message formatting.
+- `agent/sketch-tools.ts`
+	- Encapsulates sketch create/read/modify workflows used by agent tool calls (keeps `spectre-widget.tsx` thinner).
+- `agent/upload-tools.ts`
+	- Encapsulates sketch upload flow: runs the upload command, analyzes output, retries on alternate serial ports, and disconnects/reconnects Serial Monitor when needed.
+
+**Boards & platform helpers**
+- `board/board-helpers.ts`
+	- Normalization + caching for board search and fuzzy matching (Levenshtein) to map user/agent inputs to actual boards.
+	- Board URL management helpers (add/remove/list) and user-facing message formatting.
+
+**Sketch, upload, storage**
+- `feature/sketch-file-helpers.ts`
+	- Collects sketch context from open editors and the current sketch (main file + tabs), including URI matching.
+- `feature/upload-helpers.ts`
+	- Analyzes build/upload output for likely compilation/upload causes and provides guidance.
+- `feature/storage-helpers.ts`
+	- Persists sessions + request tracking data to storage and restores it safely.
+
+**Memory system**
+- `memory/memory-types.ts`
+	- Defines the memory data model: rolling raw buffer + summary bank.
+- `memory/memory-manager.ts`
+	- Implements token-aware prompt assembly, summarization triggers, memory bank compression.
+- `memory/memory-helpers.ts`
+	- Persists/restores memory to/from `localStorage` for session continuity.
+
+**UI rendering utilities**
+- `ui/widget-render-helpers.tsx`
+	- Stateless React render helpers for task panel, session tabs, empty states, message bubbles, errors, and input area.
+- `ui/rendering-helpers.tsx`
+	- Markdown/code rendering helpers and display formatting for function-calling actions.
+- `ui/ui-helpers.ts`
+	- Extracts code blocks from assistant text for “use code” flows and diff decoration logic.
+- `ui/inline-diff.ts`
+	- Applies inline diff decorations (Keep/Undo style) and auto-removes them after a timeout; used by agent-driven sketch edits.
+
+**Config and validation**
+- `utils/config-helpers.ts`
+	- Maps models to UI limits (character/RPM) and provides local RPM calculations.
+- `utils/token-counter.ts`
+	- Heuristic token estimation (used for budgeting and UI stats).
+- `utils/validation-helpers.ts`
+	- Normalizes and formats user-facing error messages for library/platform operations.
+- `utils/auto-title.ts`
+	- Generates compact session titles from user prompts; extracted from the widget for reuse and to reduce widget size.
+
+### 3.2 Code map (backend)
+
+**Protocol layer**
+- `arduino-ide-extension/src/common/protocol/spectre-ai-service.ts`
+	- Defines request/response types, function declarations, streaming events, and the RPC interface.
+- `arduino-ide-extension/src/common/protocol/spectre-secrets-service.ts`
+	- Defines secure API key storage RPC interface.
+- `arduino-ide-extension/src/common/protocol/spectre-types.ts`
+	- Shared timing constants and logging utilities (`spectreLog/spectreWarn/spectreError`).
+
+**Node services**
+- `arduino-ide-extension/src/node/spectre-ai-service-impl.ts`
+	- Implements Gemini calls, streaming, quota/rate limiting, request queueing, retries, memory/prompt assembly, and agent mode tool availability.
+- `arduino-ide-extension/src/node/spectre-secrets-service-impl.ts`
+	- Stores the Gemini API key securely (keychain + file fallback) and pushes status changes to the frontend.
+
+### 3.3 Why `spectre-widget.tsx` is large
+
+`spectre-widget.tsx` is large because it currently acts as the integration hub between:
+- UI state (sessions/messages/input rendering and interaction)
+- IDE services (sketches, editors, output channels, boards, ports, libraries)
+- Streaming transport (incremental deltas, cancellation, fallback completion)
+- Agent runtime (loop detection, function call sequencing, task panel extraction)
+- Persistence (sessions + request logs + daily tracker)
+- Memory management (rolling buffer + summaries)
+
+Even with helpers extracted, the widget still contains a lot of “glue code” needed to coordinate these subsystems. The safest size reductions are to keep extracting pure helpers (e.g., title generation, formatting, parsing) and to move longer, self-contained agent orchestration subroutines into `agent/*` modules.
+
 ## 4. Memory system
 
 Spectre uses a three-part memory system that balances fidelity with token budget:
@@ -216,6 +326,17 @@ A: Agents have loop guards; add idempotency to steps and ensure continuation ins
 
 **Status:** ✅ Production-ready after comprehensive cleanup
 
+### January 2026 cleanup notes
+
+This maintenance pass focused on removing low-value duplication without changing behavior:
+
+- Upload error formatting is centralized in `feature/upload-helpers.ts` (`UploadHelper.formatUploadError`).
+	- `utils/validation-helpers.ts` no longer contains a second upload formatter.
+- Redundant wrapper methods in `spectre-widget.tsx` that only forwarded to `ui/rendering-helpers.tsx` were removed.
+- Session title generation was extracted from `spectre-widget.tsx` into `utils/auto-title.ts`.
+- Widget DOM utilities (scroll-to-bottom + textarea autogrow) were extracted from `spectre-widget.tsx` into `ui/dom-helpers.ts`.
+- Agent response cleaning + task list stripping were extracted from `spectre-widget.tsx` into `agent/response-cleaning.ts`.
+- Agent function-call execution + progress logging were extracted from `spectre-widget.tsx` into `agent/function-call-runner.ts`.
 ### 13.1 Executive Summary
 
 The Spectre AI Assistant underwent comprehensive code review and cleanup in December 2025, removing all deprecated code, excessive debug logging, and unused imports. The codebase is now production-ready with zero compilation errors or warnings.

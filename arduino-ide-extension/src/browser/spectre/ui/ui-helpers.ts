@@ -4,6 +4,8 @@
  * Includes helpers for code extraction, language detection, and diff visualization.
  */
 
+import { extractExplicitCodeBlocks as extractFencedBlocks } from './ui-utilities-consolidated';
+
 /**
  * Code block type with metadata.
  */
@@ -65,19 +67,7 @@ export class UIHelper {
    * Extracts explicit code blocks (```cpp, ```c, ```arduino, ```ino, or plain ```).
    */
   static extractExplicitCodeBlocks(text: string): CodeBlock[] {
-    const codeBlockRegex = /```(?:(cpp|c|arduino|ino|javascript|python|js|py))?\n([\s\S]*?)```/g;
-    const blocks: CodeBlock[] = [];
-    let match;
-
-    while ((match = codeBlockRegex.exec(text)) !== null) {
-      blocks.push({
-        code: match[2].trim(),
-        type: 'block',
-        language: match[1] || 'cpp',
-      });
-    }
-
-    return blocks;
+    return extractFencedBlocks(text);
   }
 
   /**
@@ -253,7 +243,7 @@ export class UIHelper {
       newLines,
       oldIdx,
       newIdx,
-      decorations,
+      contentWidgets,
     });
     if (deletionResult) return deletionResult;
 
@@ -263,7 +253,7 @@ export class UIHelper {
       newLines,
       oldIdx,
       newIdx,
-      contentWidgets,
+      decorations,
     });
     if (additionResult) return additionResult;
 
@@ -283,18 +273,16 @@ export class UIHelper {
     newLines: string[];
     oldIdx: number;
     newIdx: number;
-    decorations: any[];
+    contentWidgets: any[];
   }): { oldIdx: number; newIdx: number } | null {
-    const { oldLines, newLines, oldIdx, newIdx, decorations } = params;
-    const lookahead = UIHelper.tryLookaheadMatch(oldLines[oldIdx], newLines, newIdx + 1, 3);
+    const { oldLines, newLines, oldIdx, newIdx, contentWidgets } = params;
+    const lookahead = UIHelper.tryLookaheadMatch(newLines[newIdx], oldLines, oldIdx + 1, 3);
 
     if (lookahead !== -1) {
-      // Deletion detected
-      decorations.push({
-        range: { startLineNumber: newIdx + 1, startColumn: 1, endLineNumber: newIdx + 1, endColumn: 1 },
-        options: { isWholeLine: true, className: 'diff-deleted-line' },
-      });
-      return { oldIdx: oldIdx + 1, newIdx: newIdx };
+      // Deletion detected: old line removed from new text.
+      // Render the deleted line as a view-zone above the current new line.
+      contentWidgets.push({ lineNumber: newIdx + 1, text: oldLines[oldIdx] });
+      return { oldIdx: oldIdx + 1, newIdx };
     }
 
     return null;
@@ -305,18 +293,15 @@ export class UIHelper {
     newLines: string[];
     oldIdx: number;
     newIdx: number;
-    contentWidgets: any[];
+    decorations: any[];
   }): { oldIdx: number; newIdx: number } | null {
-    const { oldLines, newLines, oldIdx, newIdx, contentWidgets } = params;
-    const lookahead = UIHelper.tryLookaheadMatch(newLines[newIdx], oldLines, oldIdx + 1, 3);
+    const { oldLines, newLines, oldIdx, newIdx, decorations } = params;
+    const lookahead = UIHelper.tryLookaheadMatch(oldLines[oldIdx], newLines, newIdx + 1, 3);
 
     if (lookahead !== -1) {
-      // Addition detected
-      contentWidgets.push({
-        lineNumber: newIdx + 1,
-        deletedLine: oldLines[oldIdx],
-      });
-      return { oldIdx: oldIdx, newIdx: newIdx + 1 };
+      // Addition detected: new line inserted into new text.
+      UIHelper.addAdditionDecoration(decorations, newIdx + 1);
+      return { oldIdx, newIdx: newIdx + 1 };
     }
 
     return null;
@@ -333,11 +318,8 @@ export class UIHelper {
     const { oldIdx, newIdx, decorations, contentWidgets } = params;
 
     // Replacement: show deleted above added
-    contentWidgets.push({ lineNumber: newIdx + 1, deletedLine: params.oldLines[oldIdx] });
-    decorations.push({
-      range: { startLineNumber: newIdx + 1, startColumn: 1, endLineNumber: newIdx + 1, endColumn: Number.MAX_VALUE },
-      options: { isWholeLine: true, className: 'diff-added-line' },
-    });
+    contentWidgets.push({ lineNumber: newIdx + 1, text: params.oldLines[oldIdx] });
+    UIHelper.addAdditionDecoration(decorations, newIdx + 1);
 
     return { oldIdx: oldIdx + 1, newIdx: newIdx + 1 };
   }
@@ -368,11 +350,12 @@ export class UIHelper {
         startLineNumber: lineNumber,
         startColumn: 1,
         endLineNumber: lineNumber,
-        endColumn: Number.MAX_VALUE,
+        endColumn: 1,
       },
       options: {
         isWholeLine: true,
-        className: 'diff-added-line',
+        className: 'spectre-diff-line-added',
+        glyphMarginClassName: 'spectre-diff-glyph-add',
       },
     });
   }
@@ -454,7 +437,7 @@ export class UIHelper {
           `;
 
           const lineText = document.createElement('span');
-          lineText.textContent = widget.text;
+          lineText.textContent = widget.text ?? widget.deletedLine ?? '';
           lineText.style.cssText = 'opacity: 0.8;';
           container.appendChild(lineText);
 

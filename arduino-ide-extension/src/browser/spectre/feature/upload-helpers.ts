@@ -406,6 +406,19 @@ export class UploadHelper {
   static formatUploadError(errText: string): Error {
     const errLower = errText.toLowerCase();
 
+    // Common Arduino IDE/CLI upload failures
+    if (errLower.includes('not in sync')) {
+      return new Error(
+        `Upload failed - board not responding. Try:\n1. Reset the board\n2. Try a different USB cable\n3. Select a different port\n\nError: ${errText}`
+      );
+    }
+
+    if (errLower.includes('permission denied') || errLower.includes('access')) {
+      return new Error(
+        `Permission denied - port may be in use. Try:\n1. Close Serial Monitor\n2. Disconnect other programs\n3. Try a different port\n\nError: ${errText}`
+      );
+    }
+
     // Check for compilation errors
     const compilationError = UploadHelper.checkCompilationError(errLower, errText);
     if (compilationError) return compilationError;

@@ -6,6 +6,7 @@
  */
 
 import React from '@theia/core/shared/react';
+import { ARDUINO_FENCED_BLOCK_REGEX, ANY_FENCED_BLOCK_SPLIT_REGEX } from './ui-utilities';
 
 /**
  * Lazy-loaded ReactMarkdown component.
@@ -45,14 +46,14 @@ export function processExplicitCodeBlocks(
     index: number
   ) => React.ReactNode
 ): React.ReactNode[] {
-  const codeBlockRegex = /```(?:cpp|c|arduino|ino)?\n?([\s\S]*?)\n?```/g;
+  const splitRegex = ANY_FENCED_BLOCK_SPLIT_REGEX;
   let lastIndex = 0;
   const parts: React.ReactNode[] = [];
   let blockIndex = 0;
 
   let match;
   while (
-    (match = codeBlockRegex.exec(text)) !== null &&
+    (match = splitRegex.exec(text)) !== null &&
     blockIndex < codeBlocks.length
   ) {
     const beforeCode = text.slice(lastIndex, match.index);
@@ -124,102 +125,63 @@ export function renderInlineCodeBlocks(
  * Gets icon for a function name.
  */
 export function getFunctionIcon(functionName: string): string {
-  switch (functionName) {
-    case 'create_sketch':
-      return '📝';
-    case 'read_sketch':
-      return '📖';
-    case 'verify_sketch':
-      return '🔍';
-    case 'upload_sketch':
-      return '⬆️';
-    case 'install_library':
-      return '📦';
-    case 'uninstall_library':
-      return '🗑️';
-    case 'search_boards':
-      return '🔎';
-    case 'install_board':
-      return '💾';
-    case 'uninstall_board':
-      return '🗑️';
-    case 'select_board':
-      return '🎯';
-    case 'get_boards':
-      return '📋';
-    case 'select_port':
-      return '🔌';
-    case 'get_ports':
-      return '🔌';
-    case 'add_board_url':
-      return '🌐';
-    case 'remove_board_url':
-      return '🗑️';
-    case 'fetch_board_urls':
-      return '🔍';
-    case 'get_board_config':
-      return '⚙️';
-    case 'set_board_config':
-      return '⚙️';
-    default:
-      return '⚡';
-  }
+  const iconByFunction: Record<string, string> = {
+    create_sketch: '📝',
+    read_sketch: '📖',
+    verify_sketch: '🔍',
+    upload_sketch: '⬆️',
+    install_library: '📦',
+    uninstall_library: '🗑️',
+    search_boards: '🔎',
+    install_board: '💾',
+    uninstall_board: '🗑️',
+    select_board: '🎯',
+    get_boards: '📋',
+    select_port: '🔌',
+    get_ports: '🔌',
+    add_board_url: '🌐',
+    remove_board_url: '🗑️',
+    fetch_board_urls: '🔍',
+    get_board_config: '⚙️',
+    set_board_config: '⚙️',
+  };
+
+  return iconByFunction[functionName] ?? '⚡';
 }
 
 /**
  * Gets label for a function name.
  */
 export function getFunctionLabel(functionName: string): string {
-  switch (functionName) {
-    case 'create_sketch':
-      return 'Creating sketch';
-    case 'read_sketch':
-      return 'Reading sketch';
-    case 'verify_sketch':
-      return 'Verifying sketch';
-    case 'upload_sketch':
-      return 'Uploading sketch';
-    case 'install_library':
-      return 'Installing library';
-    case 'uninstall_library':
-      return 'Uninstalling library';
-    case 'search_boards':
-      return 'Searching boards';
-    case 'install_board':
-      return 'Installing board';
-    case 'uninstall_board':
-      return 'Uninstalling board';
-    case 'select_board':
-      return 'Selecting board';
-    case 'get_boards':
-      return 'Getting boards list';
-    case 'select_port':
-      return 'Selecting port';
-    case 'get_ports':
-      return 'Getting ports list';
-    case 'add_board_url':
-      return 'Adding board URL';
-    case 'remove_board_url':
-      return 'Removing board URL';
-    case 'fetch_board_urls':
-      return 'Fetching board URLs';
-    case 'get_board_config':
-      return 'Getting board configuration';
-    case 'set_board_config':
-      return 'Setting board configuration';
-    default:
-      return functionName.replace(/_/g, ' ');
-  }
+  const labelByFunction: Record<string, string> = {
+    create_sketch: 'Creating sketch',
+    read_sketch: 'Reading sketch',
+    verify_sketch: 'Verifying sketch',
+    upload_sketch: 'Uploading sketch',
+    install_library: 'Installing library',
+    uninstall_library: 'Uninstalling library',
+    search_boards: 'Searching boards',
+    install_board: 'Installing board',
+    uninstall_board: 'Uninstalling board',
+    select_board: 'Selecting board',
+    get_boards: 'Getting boards list',
+    select_port: 'Selecting port',
+    get_ports: 'Getting ports list',
+    add_board_url: 'Adding board URL',
+    remove_board_url: 'Removing board URL',
+    fetch_board_urls: 'Fetching board URLs',
+    get_board_config: 'Getting board configuration',
+    set_board_config: 'Setting board configuration',
+  };
+
+  return labelByFunction[functionName] ?? functionName.replace(/_/g, ' ');
 }
 
 /**
  * Suppresses redundant code blocks from agent responses.
  */
 export function suppressRedundantCodeBlocks(text: string): string {
-  // Match code blocks with cpp/arduino/c/ino language tags
-  const codeBlockRegex = /```(?:cpp|c|arduino|ino)\n([\s\S]*?)\n```/gi;
-
-  return text.replace(codeBlockRegex, (match, code) => {
+  return text.replace(ARDUINO_FENCED_BLOCK_REGEX, (match, code) => {
     const lines = code.trim().split('\n');
     const lineCount = lines.length;
 

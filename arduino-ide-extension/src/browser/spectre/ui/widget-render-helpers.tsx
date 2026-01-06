@@ -5,8 +5,9 @@
  * @author Tazul Islam
  */
 import * as React from '@theia/core/shared/react';
-import { AgentTask } from '../agent/task-helpers';
+import { AgentTask } from '../agent/agent-tools';
 import type { ConversationMemory } from '../memory/memory-types';
+import { TokenCounter } from '../utils/token-counter';
 
 /**
  * Chat message interface for message rendering.
@@ -99,6 +100,28 @@ interface InputAreaProps {
   inputRef: (el: HTMLTextAreaElement | null) => void;
   inlineQuota: React.ReactNode;
   memoryStats: React.ReactNode;
+}
+
+interface InlineQuotaProps {
+  quotaUsed: number;
+  quotaCapacity: number;
+  rpmUsed: number;
+  rpmLimit: number;
+  queueSize: number;
+  nextAvailableMs: number;
+  now: number;
+  clientRpm: number;
+  dailyStats: { requests: number; tokens: number };
+  model: string;
+}
+
+interface MemoryStatsFooterProps {
+  memoryStats?: {
+    recentMessages: number;
+    summaries: number;
+    totalTokens: number;
+    isSummarizing?: boolean;
+  };
 }
 
 /**
@@ -517,3 +540,152 @@ export function renderInputArea(props: InputAreaProps): React.ReactNode {
     </div>
   );
 }
+
+export function renderInlineQuota(props: InlineQuotaProps): React.ReactNode {
+  const {
+    quotaUsed,
+    quotaCapacity,
+    rpmUsed,
+    rpmLimit,
+    queueSize,
+    nextAvailableMs,
+    now,
+    clientRpm,
+    dailyStats,
+    model,
+  } = props;
+
+  const pct = Math.min(100, Math.max(0, (quotaUsed / quotaCapacity) * 100));
+  const remain = Math.max(0, nextAvailableMs - now);
+
+  const rpmDisplay =
+    queueSize > 0
+      ? `Q:${queueSize} ${(remain / 1000).toFixed(1)}s`
+      : `${rpmUsed}/${rpmLimit} RPM`;
+
+  const title =
+    `Model: ${model}\n` +
+    `TPM Usage: ${quotaUsed.toLocaleString()}/${quotaCapacity.toLocaleString()} tokens (${pct.toFixed(1)}%)\n` +
+    `RPM: ${rpmUsed}/${rpmLimit}\n` +
+    `Client RPM (60s): ${clientRpm}/${rpmLimit}\n` +
+    `Daily (Pacific): ${dailyStats.requests} requests, ${dailyStats.tokens.toLocaleString()} tokens`;
+
+  return (
+    <div className="spectre-inline-quota" title={title}>
+      <QuotaRing percent={pct} used={quotaUsed} cap={quotaCapacity} />
+      <span className="spectre-inline-quota-text">{rpmDisplay}</span>
+    </div>
+  );
+}
+
+function shouldHideMemoryStats(memoryStats: MemoryStatsFooterProps['memoryStats']): boolean {
+  return !memoryStats || (memoryStats.recentMessages === 0 && memoryStats.summaries === 0);
+}
+
+export function renderMemoryStatsFooter(props: MemoryStatsFooterProps): React.ReactNode {
+  const { memoryStats } = props;
+
+  if (shouldHideMemoryStats(memoryStats)) {
+    return null;
+  }
+
+  const { recentMessages, summaries, totalTokens, isSummarizing } = memoryStats!;
+  const memoryBankCap = 50000;
+  const percent = Math.min(100, Math.max(0, (totalTokens / memoryBankCap) * 100));
+
+  let statusClass = 'memory-ok';
+  if (percent >= 90) {
+    statusClass = 'memory-high';
+  } else if (percent >= 70) {
+    statusClass = 'memory-medium';
+  }
+
+  const statusText =
+    summaries > 0 ? `${recentMessages} msgs + ${summaries} summaries` : `${recentMessages} messages`;
+
+  const tokenText = `${TokenCounter.formatCount(totalTokens)}/${TokenCounter.formatCount(memoryBankCap)}`;
+
+  return (
+    <div
+      className={`spectre-memory-footer ${statusClass}`}
+      title={
+        `Conversation Memory:\n` +
+        `Recent Messages: ${recentMessages}\n` +
+        `Summaries: ${summaries}\n` +
+        `Total Tokens: ${totalTokens.toLocaleString()}/${memoryBankCap.toLocaleString()} (${percent.toFixed(1)}%)\n\n` +
+        `The AI maintains context by keeping recent messages and compressing older ones into summaries. ` +
+        `This allows long conversations without hitting token limits.`
+      }
+    >
+      <span className="memory-icon">💾</span>
+      <span className="memory-text">
+        {statusText} • {tokenText}
+      </span>
+      {isSummarizing && (
+        <span className="memory-status" title="Compressing conversation history...">
+          ⏳ Summarizing...
+        </span>
+      )}
+    </div>
+  );
+}
+
+interface QuotaRingProps {
+  percent: number;
+  used: number;
+  cap: number;
+}
+
+// eslint-disable-next-line react/prop-types
+const QuotaRing: React.FC<QuotaRingProps> = ({ percent, used, cap }) => {
+  const r = 12;
+  const c = 2 * Math.PI * r;
+
+  const minPercent = percent > 0 && percent < 2 ? 2 : percent;
+  const dash = (minPercent / 100) * c;
+
+  let progressColor = 'var(--theia-charts-green, #89D185)';
+  if (percent >= 90) {
+    progressColor = 'var(--theia-errorForeground, #f48771)';
+  } else if (percent >= 70) {
+    progressColor = 'var(--theia-charts-orange, #d18616)';
+  }
+
+  return (
+    <svg width={30} height={30} viewBox="0 0 30 30" style={{ marginRight: 6 }}>
+      <circle
+        cx={15}
+        cy={15}
+        r={r}
+        stroke="var(--theia-input-border, rgba(128, 128, 128, 0.5))"
+        strokeWidth={3}
+        fill="none"
+        opacity={0.3}
+      />
+      <circle
+        cx={15}
+        cy={15}
+        r={r}
+        stroke={progressColor}
+        strokeWidth={3}
+        fill="none"
+        strokeDasharray={`${dash.toFixed(2)} ${c.toFixed(2)}`}
+        strokeLinecap="round"
+        transform="rotate(-90 15 15)"
+        opacity={percent > 0 ? 1 : 0}
+      />
+      <text
+        x="15"
+        y="19"
+        fontSize="9"
+        fontWeight="600"
+        textAnchor="middle"
+        fill="var(--theia-foreground)"
+        style={{ userSelect: 'none' }}
+      >
+        {Math.round(percent)}
+      </text>
+      <title>{`TPM: ${used.toLocaleString()} / ${cap.toLocaleString()} tokens (${Math.round(percent)}%)`}</title>
+    </svg>
+  );
+};
