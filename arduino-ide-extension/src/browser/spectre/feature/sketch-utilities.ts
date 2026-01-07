@@ -1,12 +1,14 @@
 /**
  * Consolidated sketch utilities.
- * Combines sketch-context.ts, current-sketch-files.ts, and sketch-file-uri.ts
+ * Utilities for building sketch context and collecting current sketch files.
+ *
+ * @author Tazul Islam
  */
 
 import { URI } from '@theia/core/lib/common/uri';
 import { spectreWarn } from '../../../common/protocol/spectre-types';
 import { CurrentSketch } from '../../sketches-service-client-impl';
-import { UIHelper } from '../ui/ui-helpers';
+import { UIHelper } from '../ui/ui-helper';
 import { addAdditionalSketchFiles, addMainSketchFile, collectOpenArduinoFiles } from '../agent/sketch-operations';
 
 // ============================================================================

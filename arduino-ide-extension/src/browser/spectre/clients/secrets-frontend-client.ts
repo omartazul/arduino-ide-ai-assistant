@@ -9,7 +9,7 @@ import { Emitter, Event } from '@theia/core/lib/common/event';
 import {
   SpectreSecretsServiceClient,
   SpectreSecretsStatus,
-} from '../../common/protocol/spectre-secrets-service';
+} from '../../../common/protocol/spectre-secrets-service';
 
 /**
  * Frontend client implementation for receiving API key status updates from the backend.

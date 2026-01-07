@@ -1,10 +1,16 @@
+/**
+ * Core chat utilities for Spectre (rate limiting, session updates, streaming helpers).
+ *
+ * @author Tazul Islam
+ */
+
 import type { MemoryManager } from '../memory/memory-manager';
 import type { SpectreAiService } from '../../../common/protocol/spectre-ai-service';
 import { spectreError } from '../../../common/protocol/spectre-types';
-import type { ChatSession } from '../ui/widget-render-helpers';
+import type { ChatSession } from '../ui/widget-rendering';
 import { TokenCounter } from '../utils/token-counter';
 import { autoTitle } from '../utils/auto-title';
-import * as UiUtilities from '../ui/ui-utilities-consolidated';
+import * as UiUtilities from '../ui/ui-utilities';
 
 /**
  * Tracks individual API requests for quota and rate limit monitoring.

@@ -1,3 +1,9 @@
+/**
+ * Completion/termination helpers for Spectre agent mode.
+ *
+ * @author Tazul Islam
+ */
+
 export interface AgentActionHistoryEntry {
   result?: { success: boolean };
 }

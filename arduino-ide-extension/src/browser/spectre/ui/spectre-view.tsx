@@ -1,7 +1,13 @@
+/**
+ * Presentational view for the Spectre chat widget.
+ *
+ * @author Tazul Islam
+ */
+
 import React from '@theia/core/shared/react';
 
-import * as WidgetRenderHelpers from './widget-render-helpers';
-import type { ChatMessage, ChatSession } from './widget-render-helpers';
+import * as WidgetRenderHelpers from './widget-rendering';
+import type { ChatMessage, ChatSession } from './widget-rendering';
 import type { AgentTask } from '../agent/agent-tools';
 
 export interface SpectreViewProps {

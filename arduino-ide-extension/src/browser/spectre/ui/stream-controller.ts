@@ -1,3 +1,9 @@
+/**
+ * Streaming controller for Spectre assistant responses.
+ *
+ * @author Tazul Islam
+ */
+
 import { spectreWarn } from '../../../common/protocol/spectre-types';
 
 export interface StreamEvent {

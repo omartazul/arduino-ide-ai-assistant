@@ -1,8 +1,14 @@
+/**
+ * Agent-mode upload helpers.
+ *
+ * @author Tazul Islam
+ */
+
 import { spectreWarn } from '../../../common/protocol/spectre-types';
 import { DetectedPort } from '../../../common/protocol/boards-service';
 import { CurrentSketch } from '../../sketches-service-client-impl';
 import { BoardHelper } from '../board/board-helpers';
-import { UploadHelper } from '../feature/upload-helpers';
+import { UploadHelper } from '../feature/upload-helper';
 
 export interface UploadToolsTiming {
   COMPILATION_TIMEOUT: number;

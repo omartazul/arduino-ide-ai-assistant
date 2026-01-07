@@ -1,6 +1,8 @@
 /**
  * Main widget for the Spectre AI assistant.
  * Provides a chat UI for basic Q&A and an optional agent mode.
+ *
+ * @author Tazul Islam
  */
 
 import React, { ChangeEvent } from '@theia/core/shared/react';
@@ -15,27 +17,27 @@ import {
   SpectreAiClient,
   SpectreQuotaUpdate,
 } from '../../common/protocol/spectre-ai-service';
-import { SpectreAiFrontendClient } from './spectre-ai-frontend-client';
+import { SpectreAiFrontendClient } from './clients/ai-frontend-client';
 import {
   spectreWarn,
   spectreError,
 } from '../../common/protocol/spectre-types';
 import { BoardHelper } from './board/board-helpers';
-import { StorageHelper } from './feature/storage-helpers';
+import { StorageHelper } from './feature/storage-helper';
 import * as SketchUtilities from './feature/sketch-utilities';
-import * as RenderingHelpers from './ui/rendering-helpers';
-import * as ConfigHelpers from './utils/config-helpers';
-import * as WidgetUtilities from './ui/ui-utilities-consolidated';
-import * as AgentExecutionHelpers from './agent/agent-execution-helpers';
+import * as RenderingHelpers from './ui/message-rendering';
+import * as ConfigHelpers from './utils/model-config';
+import * as WidgetUtilities from './ui/ui-utilities';
+import * as AgentExecutionHelpers from './agent/agent-execution-router';
 import * as AgentActions from './agent/agent-actions';
 import * as AgentModeTools from './agent/agent-mode-tools';
-import * as UiUtilities from './ui/ui-utilities-consolidated';
+import * as UiUtilities from './ui/ui-utilities';
 import * as CodeBlockRendering from './ui/code-block-rendering';
 import { SpectreView } from './ui/spectre-view';
 import { StreamController } from './ui/stream-controller';
-import * as BasicChatTools from './chat/basic-chat-tools';
+import * as ChatTools from './chat/chat-tools';
 import * as SessionActions from './chat/chat-session-manager';
-import type { ChatSession } from './ui/widget-render-helpers';
+import type { ChatSession } from './ui/widget-rendering';
 import type { AgentTask } from './agent/agent-tools';
 
 /**
@@ -99,9 +101,9 @@ import { MemoryManager } from './memory/memory-manager';
 import * as SessionMemoryTools from './memory/session-memory-tools';
 import { TokenCounter } from './utils/token-counter';
 
-// ChatMessage/ChatSession types live in `ui/widget-render-helpers.tsx`.
+// ChatMessage/ChatSession types live in `ui/widget-rendering.tsx`.
 
-// RequestLog/DailyTracker types live in `chat/basic-chat-tools.ts`.
+// RequestLog/DailyTracker types live in `chat/chat-tools.ts`.
 
 /**
  * Main widget for the Spectre AI assistant.
@@ -168,8 +170,8 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
     nextAvailableMs: number;
     now: number;
     // Request tracking
-    requestLogs: BasicChatTools.RequestLog[];
-    dailyTracker: BasicChatTools.DailyTracker;
+    requestLogs: ChatTools.RequestLog[];
+    dailyTracker: ChatTools.DailyTracker;
     // Agent task tracking
     tasks: AgentTask[];
     tasksExpanded: boolean;
@@ -758,9 +760,9 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
     );
   }
 
-  private async validateAndPrepareMessage(): Promise<BasicChatTools.ValidateAndPrepareResult | null> {
+  private async validateAndPrepareMessage(): Promise<ChatTools.ValidateAndPrepareResult | null> {
     const lastSendAtRef = { value: this.lastSendAt };
-    const result = await BasicChatTools.validateAndPrepareMessage({
+    const result = await ChatTools.validateAndPrepareMessage({
       stateData: this.stateData,
       prefs: this.prefs,
       sending: this.sending,
@@ -809,7 +811,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
       }
 
       // Basic mode: Create empty assistant message and attach stream listener
-      BasicChatTools.startBasicModeGeneration({
+      ChatTools.startBasicModeGeneration({
         deps: {
           ai: this.ai,
           stateData: this.stateData,

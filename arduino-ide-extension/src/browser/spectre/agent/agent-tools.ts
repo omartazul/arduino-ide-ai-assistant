@@ -13,8 +13,8 @@
 
 import { spectreError, spectreWarn } from '../../../common/protocol/spectre-types';
 import { BoardHelper, BoardUrlHelper } from '../board/board-helpers';
-import { ValidationHelper } from '../utils/validation-helpers';
-import * as RenderingHelpers from '../ui/rendering-helpers';
+import { ValidationHelper } from '../utils/validation-helper';
+import * as RenderingHelpers from '../ui/message-rendering';
 
 // ============================================================================
 // Types and Interfaces

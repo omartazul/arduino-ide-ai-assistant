@@ -1,3 +1,9 @@
+/**
+ * ReAct loop runner for Spectre agent mode.
+ *
+ * @author Tazul Islam
+ */
+
 export type AgentConversationMessage =
   | { role: 'user' | 'model'; text: string }
   | { role: 'function'; name: string; response: any };

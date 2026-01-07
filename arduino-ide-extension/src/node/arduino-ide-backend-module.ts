@@ -1,5 +1,4 @@
- 
- import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
+import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import { ArduinoDaemonImpl } from './arduino-daemon-impl';
 import {
   ArduinoFirmwareUploader,

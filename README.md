@@ -4,19 +4,19 @@
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)]()
-[![Arduino IDE](https://img.shields.io/badge/Arduino%20IDE-2.3.7-teal)]()
+[![Arduino IDE](https://img.shields.io/badge/Arduino%20IDE-2.3.8-teal)]()
 [![Gemini AI](https://img.shields.io/badge/Powered%20by-Gemini%202.5-orange)]()
-[![Version](https://img.shields.io/badge/version-3.3.7-teal)]()
+[![Version](https://img.shields.io/badge/version-3.3.8-teal)]()
 
 ## What is Arduino IDE AI Assistant?
 
-Arduino IDE AI Assistant is an enhanced version of Arduino IDE 2.x with Google's Gemini 2.0 AI integration that provides:
+Arduino IDE AI Assistant is an enhanced version of Arduino IDE 2.x with Google's Gemini 2.5 (Flash / Flash-Lite) integration that provides:
 
 - **AI-powered code generation** for Arduino sketches
-- **Autonomous agent mode** that can create projects, install libraries, and compile code
+- **Autonomous agent mode** that can create/modify sketches, install libraries, and verify code
 - **Contextual assistance** based on your current sketch
-- **Advanced memory system** supporting 1000+ message conversations
-- **Free tier optimization** for Gemini API (250k TPM, 10-15 RPM)
+- **Conversation memory** (rolling buffer + summarization) designed for long sessions
+- **Quota-aware defaults** for Gemini 2.5 (250k input TPM, 10–15 RPM, plus daily caps)
 
 ## Screenshots 📸
 
@@ -58,8 +58,8 @@ Below are screenshots from the running Arduino IDE AI Assistant UI (left: AI / S
 - Multi-step autonomous execution
 
 ### Advanced Memory Management
-- Dynamic conversation retention (1000+ messages)
-- AI-powered summarization (50-70% compression)
+- Dynamic conversation retention (rolling buffer + summaries)
+- AI-powered summarization (configured for concise, structured summaries)
 - Session persistence across restarts
 - Smart token allocation for long conversations
 - 100k token memory bank capacity
@@ -106,7 +106,7 @@ The installer will be in `electron-app/dist/`
 1. Open Arduino IDE AI Assistant
 2. Click the AI icon in the sidebar
 3. Enter your Gemini API key
-4. Choose your model (Flash or Flash-Lite)
+4. Choose your model (`gemini-2.5-flash` or `gemini-2.5-flash-lite`)
 
 ### 3. Start Using
 
@@ -141,15 +141,13 @@ AI: [Creates sketch, installs DHT library, sets up code automatically]
 ### Memory System
 - Rolling buffer: 40 messages (25k tokens)
 - Memory bank: 100k tokens
-- Compression: 97% efficiency
-- Summarization: Gemini Flash-Lite
-- Meta-compression: 70-80% reduction
+- Summarization model: `gemini-2.5-flash-lite`
 
 ### API Limits (Gemini Free Tier)
 - Input: 250k tokens per minute
 - Requests: 10-15 per minute
-- Context: 1M tokens
-- Output: 65k tokens max
+- Requests per day: 250 (Flash) / 1000 (Flash-Lite)
+- Output: 65,536 tokens max
 
 ## Project Structure
 
@@ -224,7 +222,7 @@ arduino-ide-ai-assistant/
 - Check rate limits not exceeded
 
 **Agent mode loops:**
-- Use latest version (v3.3.7+)
+- Use latest version (v3.3.8+)
 - Clear session if issue persists
 
 **Memory issues:**

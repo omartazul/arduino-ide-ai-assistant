@@ -1,7 +1,13 @@
+/**
+ * Agent-mode orchestration helpers (function-calling, ReAct loop, loop detection).
+ *
+ * @author Tazul Islam
+ */
+
 import type { SpectreAiService } from '../../../common/protocol/spectre-ai-service';
 import { spectreError, spectreWarn } from '../../../common/protocol/spectre-types';
 import type { MemoryManager } from '../memory/memory-manager';
-import type { ChatSession } from '../ui/widget-render-helpers';
+import type { ChatSession } from '../ui/widget-rendering';
 import * as AgentTools from './agent-tools';
 import * as FunctionCallRunner from './function-call-runner';
 import * as ReactLoop from './react-loop';

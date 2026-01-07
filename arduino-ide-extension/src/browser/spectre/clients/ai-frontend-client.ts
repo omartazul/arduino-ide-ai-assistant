@@ -9,7 +9,7 @@ import { Emitter, Event } from '@theia/core/lib/common/event';
 import {
   SpectreAiClient,
   SpectreQuotaUpdate,
-} from '../../common/protocol/spectre-ai-service';
+} from '../../../common/protocol/spectre-ai-service';
 
 /**
  * Frontend client implementation for receiving AI streaming responses and quota updates from the backend.

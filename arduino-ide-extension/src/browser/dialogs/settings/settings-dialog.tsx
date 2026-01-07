@@ -18,7 +18,7 @@ import { AdditionalUrls } from '../../../common/protocol';
 import { AbstractDialog } from '../../theia/dialogs/dialogs';
 import { ThemeService } from '@theia/core/lib/browser/theming';
 import { SpectreSecretsService } from '../../../common/protocol/spectre-secrets-service';
-import { SpectreSecretsFrontendClient } from '../../spectre/spectre-secrets-frontend-client';
+import { SpectreSecretsFrontendClient } from '../../spectre/clients/secrets-frontend-client';
 
 @injectable()
 export class SettingsWidget extends ReactWidget {

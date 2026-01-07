@@ -1,6 +1,12 @@
+/**
+ * Session memory migration and persistence helpers for Spectre.
+ *
+ * @author Tazul Islam
+ */
+
 import { spectreWarn } from '../../../common/protocol/spectre-types';
 
-import { MemoryHelper } from './memory-helpers';
+import { MemoryHelper } from './memory-helper';
 import { MemoryManager } from './memory-manager';
 import { ConversationMemory, RawMessage } from './memory-types';
 import { TokenCounter } from '../utils/token-counter';

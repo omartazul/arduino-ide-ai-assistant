@@ -1,3 +1,9 @@
+/**
+ * Agent-mode board/port selection helpers.
+ *
+ * @author Tazul Islam
+ */
+
 import { spectreError, spectreWarn } from '../../../common/protocol/spectre-types';
 import { BoardHelper } from '../board/board-helpers';
 

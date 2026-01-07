@@ -31,7 +31,7 @@ import {
 } from '../../theia/core/theming';
 import { Theme } from '@theia/core/lib/common/theme';
 import { SpectreSecretsService } from '../../../common/protocol/spectre-secrets-service';
-import { SpectreSecretsFrontendClient } from '../../spectre/spectre-secrets-frontend-client';
+import { SpectreSecretsFrontendClient } from '../../spectre/clients/secrets-frontend-client';
 
 const maxScale = InterfaceScale.ZoomLevel.toPercentage(
   InterfaceScale.ZoomLevel.MAX

@@ -1,10 +1,16 @@
+/**
+ * Code-block rendering and copy/paste helpers for Spectre chat.
+ *
+ * @author Tazul Islam
+ */
+
 import React from 'react';
 
 import { EditorManager } from '../../theia/editor/editor-manager';
 import { spectreWarn } from '../../../common/protocol/spectre-types';
 
-import * as RenderingHelpers from './rendering-helpers';
-import { UIHelper } from './ui-helpers';
+import * as RenderingHelpers from './message-rendering';
+import { UIHelper } from './ui-helper';
 
 export interface CodeBlockRenderingDeps {
   editorManager: EditorManager;

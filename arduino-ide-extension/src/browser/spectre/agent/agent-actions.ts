@@ -1,3 +1,9 @@
+/**
+ * Spectre agent action implementations (sketch, board, platform, upload, etc.).
+ *
+ * @author Tazul Islam
+ */
+
 import { spectreError, spectreWarn, SKETCH_CONSTANTS, type ValidationResult } from '../../../common/protocol/spectre-types';
 import { CurrentSketch } from '../../sketches-service-client-impl';
 import * as SketchOperations from './sketch-operations';
@@ -5,8 +11,8 @@ import * as UploadTools from './upload-tools';
 import * as AgentTools from './agent-tools';
 import * as PlatformTools from './platform-tools';
 import * as BoardTools from './board-tools';
-import * as UiUtilities from '../ui/ui-utilities-consolidated';
-import { UploadHelper } from '../feature/upload-helpers';
+import * as UiUtilities from '../ui/ui-utilities';
+import { UploadHelper } from '../feature/upload-helper';
 
 export interface AgentActionsTiming {
   AGENT_ERROR_DELAY: number;

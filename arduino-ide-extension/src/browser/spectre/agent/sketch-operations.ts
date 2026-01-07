@@ -1,10 +1,8 @@
 /**
  * Consolidated Sketch Operations
- * 
- * This file consolidates:
- * - sketch-tools.ts
- * - sketch-file-collector.ts (from feature/)
- * 
+ *
+ * Sketch creation, reading, and file collection utilities used by agent mode.
+ *
  * @author Tazul Islam
  */
 
@@ -18,6 +16,7 @@ import {
   isRelevantSketchFile,
   matchDecodedUris,
 } from '../feature/sketch-utilities';
+
 
 // ============================================================================
 // Types and Interfaces

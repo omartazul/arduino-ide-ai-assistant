@@ -1,17 +1,17 @@
 /**
- * Consolidated UI Utilities
- * 
- * This file consolidates:
+ * UI Utilities
+ *
+ * This file consolidates legacy modules:
  * - ui-utilities.ts
  * - widget-utilities.ts
  * - inline-diff.ts
- * 
+ *
  * @author Tazul Islam
  */
 
 import type { SpectreAiService } from '../../../common/protocol/spectre-ai-service';
 import { spectreError, spectreWarn } from '../../../common/protocol/spectre-types';
-import { UIHelper } from './ui-helpers';
+import { UIHelper } from './ui-helper';
 
 // ============================================================================
 // DOM Helpers

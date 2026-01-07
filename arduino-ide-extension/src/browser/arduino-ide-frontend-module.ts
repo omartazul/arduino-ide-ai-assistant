@@ -7,8 +7,8 @@ import {
   SpectreAiService,
   SpectreAiServicePath,
 } from '../common/protocol/spectre-ai-service';
-import { SpectreAiFrontendClient } from './spectre/spectre-ai-frontend-client';
-import { SpectreSecretsFrontendClient } from './spectre/spectre-secrets-frontend-client';
+import { SpectreAiFrontendClient } from './spectre/clients/ai-frontend-client';
+import { SpectreSecretsFrontendClient } from './spectre/clients/secrets-frontend-client';
 import { MemoryManager } from './spectre/memory/memory-manager';
 import { Container, ContainerModule } from '@theia/core/shared/inversify';
 import { WidgetFactory } from '@theia/core/lib/browser/widget-manager';

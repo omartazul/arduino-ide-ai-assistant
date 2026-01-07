@@ -11,10 +11,10 @@
 import { spectreWarn } from '../../../common/protocol/spectre-types';
 import { CurrentSketch } from '../../sketches-service-client-impl';
 import type { StorageService } from '@theia/core/lib/browser/storage-service';
-import type { ChatSession } from '../ui/widget-render-helpers';
+import type { ChatSession } from '../ui/widget-rendering';
 import type { MemoryManager } from '../memory/memory-manager';
 import type { ConversationMemory, RawMessage } from '../memory/memory-types';
-import { MemoryHelper } from '../memory/memory-helpers';
+import { MemoryHelper } from '../memory/memory-helper';
 import { TokenCounter } from '../utils/token-counter';
 
 // ============================================================================

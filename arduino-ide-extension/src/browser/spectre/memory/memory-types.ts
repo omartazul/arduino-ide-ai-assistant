@@ -10,7 +10,7 @@
  * - Memory bank periodically re-summarized to prevent unbounded growth
  *
  * Benefits:
- * - Predictable token usage (capped at ~50k input tokens)
+ * - Predictable token usage (prompt assembly targets ~30k Flash-Lite / ~50k Flash)
  * - Scales to arbitrarily long conversations
  * - Preserves critical context (decisions, code changes, intents)
  * - No hard-coded limits on message length
@@ -113,10 +113,10 @@ export interface ConversationMemory {
  * Configuration for memory retention behavior.
  */
 interface MemoryConfig {
-  /** Max raw messages to keep before summarization (default: 15 turns = 30 messages) */
+  /** Max raw messages to keep before summarization (defaults are set in `memory-manager.ts`, currently 40) */
   maxRecentMessages: number;
 
-  /** Soft cap for memory bank tokens (default: 50k) */
+  /** Soft cap for memory bank tokens (defaults are set in `memory-manager.ts`, currently 100k) */
   memoryBankTokenCap: number;
 
   /** When to trigger summarization of recent messages */

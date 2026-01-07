@@ -2,9 +2,11 @@
  * UI utilities for the Spectre widget.
  *
  * Includes helpers for code extraction, language detection, and diff visualization.
+ *
+ * @author Tazul Islam
  */
 
-import { extractExplicitCodeBlocks as extractFencedBlocks } from './ui-utilities-consolidated';
+import { extractExplicitCodeBlocks as extractFencedBlocks } from './ui-utilities';
 
 /**
  * Code block type with metadata.

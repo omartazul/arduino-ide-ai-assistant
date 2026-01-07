@@ -1,3 +1,9 @@
+/**
+ * Detects repeated agent actions to prevent infinite loops.
+ *
+ * @author Tazul Islam
+ */
+
 export interface LoopDetectorActionRecord {
   signature: string;
   normalizedSignature: string;

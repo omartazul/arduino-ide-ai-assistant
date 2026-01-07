@@ -2,6 +2,8 @@
  * Generates a compact, human-readable title for a chat session.
  *
  * Extracted from `spectre-widget.tsx` to reduce module size.
+ *
+ * @author Tazul Islam
  */
 export function autoTitle(text: string): string {
   const clean = text.replace(/\s+/g, ' ').trim();

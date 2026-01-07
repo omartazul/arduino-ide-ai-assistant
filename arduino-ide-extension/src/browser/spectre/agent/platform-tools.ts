@@ -1,6 +1,12 @@
+/**
+ * Agent-mode platform (board package) install/uninstall/search helpers.
+ *
+ * @author Tazul Islam
+ */
+
 import { spectreError } from '../../../common/protocol/spectre-types';
 import { BoardHelper } from '../board/board-helpers';
-import { ValidationHelper } from '../utils/validation-helpers';
+import { ValidationHelper } from '../utils/validation-helper';
 
 export interface PlatformToolsContext {
   boardsService: {

@@ -1,4 +1,10 @@
-import * as RenderingHelpers from '../ui/rendering-helpers';
+/**
+ * Executes agent function calls (with loop detection and UI streaming updates).
+ *
+ * @author Tazul Islam
+ */
+
+import * as RenderingHelpers from '../ui/message-rendering';
 
 export type AgentFunctionCall = { name: string; args: Record<string, any> };
 
