@@ -469,6 +469,10 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
     return msg.includes('network') || msg.includes('fetch') || msg.includes('connection');
   }
 
+  private getSpectreMode(): 'basic' | 'agent' {
+    return this.prefs['arduino.spectre.mode'] === 'agent' ? 'agent' : 'basic';
+  }
+
   /**
    * Renders assistant message content with integrated Arduino code blocks
    */
@@ -481,7 +485,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
         editorManager: this.editorManager,
         feedbackTimers: this.feedbackTimers,
         copyFeedbackDurationMs: WIDGET_TIMING.COPY_FEEDBACK_DURATION,
-        isBasicMode: this.prefs['arduino.spectre.mode'] !== 'agent',
+        isBasicMode: this.getSpectreMode() !== 'agent',
       },
       text,
       isStreaming,
@@ -796,7 +800,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
       // Collect current sketch files for context (both basic and agent modes need this)
       const sketchFiles = await this.getCurrentSketchFiles();
 
-      const agentMode = this.prefs['arduino.spectre.mode'] === 'agent';
+      const agentMode = this.getSpectreMode() === 'agent';
   
       // Use new function calling approach for agent mode
       if (agentMode) {
@@ -814,7 +818,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
       ChatTools.startBasicModeGeneration({
         deps: {
           ai: this.ai,
-          stateData: this.stateData,
+          getStateData: () => this.stateData,
           memoryManager: this.memoryManager,
           getPacificDate: () => ConfigHelpers.getPacificDate(),
           persistTrackingData: () => this.persistTrackingData(),
@@ -948,7 +952,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
    */
   protected render(): React.ReactNode {
     return SpectreView({
-      mode: this.prefs['arduino.spectre.mode'] as 'agent' | 'basic',
+      mode: this.getSpectreMode(),
       model: this.prefs['arduino.spectre.model'],
       busy: this.stateData.busy,
       sessions: this.stateData.sessions,

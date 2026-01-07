@@ -114,7 +114,10 @@ async function getVersion() {
 async function getArtifactName(version) {
   const { platform, arch } = process;
   version = isNightly ? `nightly-${await timestamp()}` : version;
-  const name = 'arduino-ide';
+  // Artifact base name (installer/archive filenames).
+  // Note: this is intentionally independent from `-c.extraMetadata.name` above,
+  // which stays `arduino-ide` to preserve user-data/localStorage locations.
+  const name = 'Arduino-IDE-AI-Assistant';
   switch (platform) {
     case 'win32': {
       if (arch === 'x64') {

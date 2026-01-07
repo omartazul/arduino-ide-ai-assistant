@@ -182,7 +182,9 @@ export class ElectronMainApplication extends TheiaElectronMainApplication {
     // If the app is running from:
     //   <X>\Arduino-IDE-AI-Assistant\Application\<exe>
     // route config/data/sketchbook to sibling folders under <X>\Arduino-IDE-AI-Assistant.
-    const portableRoot = this.tryGetPortableRootFromExecPath();
+    const portableRoot =
+      process.env.ARDUINO_IDE_AI_PORTABLE_ROOT ||
+      this.tryGetPortableRootFromExecPath();
     if (portableRoot) {
       process.env.ARDUINO_IDE_AI_PORTABLE_ROOT = portableRoot;
       await Promise.all([
@@ -253,20 +255,16 @@ export class ElectronMainApplication extends TheiaElectronMainApplication {
     try {
       const exePath = process.execPath;
       const applicationDir = dirname(exePath);
-      const root = dirname(applicationDir);
-
       if (basename(applicationDir).toLowerCase() !== 'application') {
         return undefined;
       }
-      if (basename(root) !== 'Arduino-IDE-AI-Assistant') {
-        return undefined;
-      }
-
-      return root;
+      // Portable layout support:
+      //   <root>\\Application\\<exe>
+      // with sibling folders under <root> (Configuration/Data/Sketchbook).
+      return dirname(applicationDir);
     } catch {
-      // ignore
+      return undefined;
     }
-    return undefined;
   }
 
   private startContentTracing(): void {

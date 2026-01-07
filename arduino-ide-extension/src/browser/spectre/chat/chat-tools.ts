@@ -207,7 +207,7 @@ function finalizePreparation(deps: ValidateAndPrepareDeps): void {
 
 export interface BasicModeSendDeps {
   ai: SpectreAiService;
-  stateData: BasicChatStateData;
+  getStateData: () => BasicChatStateData;
   memoryManager: MemoryManager;
 
   getPacificDate: () => string;
@@ -236,17 +236,26 @@ export function startBasicModeGeneration(params: {
   const { deps, prepared, sketchFiles } = params;
   const { text, requestSeq, abortKey, model, sessions } = prepared;
 
-  const current = sessions[deps.stateData.active];
+  const state = deps.getStateData();
+  const requestedId = state.requestSessionId;
+  const idx = requestedId ? sessions.findIndex((s) => s.id === requestedId) : state.active;
+  const current = sessions[idx];
 
   // Basic mode: Create empty assistant message and attach stream listener
   void deps.appendAssistant('', requestSeq);
   deps.streamAttach(abortKey, requestSeq);
 
   // Build context prompt
-  const contextualPrompt = buildBasicModeContext(text, sketchFiles);
+  const contextualPrompt = buildBasicModeContext({
+    text,
+    sketchFiles,
+    buildSketchContext: deps.buildSketchContext,
+  });
 
   // Build conversation history from memory system
-  const session = deps.stateData.sessions[deps.stateData.active];
+  const session = requestedId
+    ? state.sessions.find((s) => s.id === requestedId)
+    : state.sessions[state.active];
   const conversationHistory = buildConversationHistory({
     memoryManager: deps.memoryManager,
     buildSketchContext: deps.buildSketchContext,
@@ -286,14 +295,19 @@ export function startBasicModeGeneration(params: {
     .catch((err) => handleGenerationError({ deps, err, requestSeq, model, estTokens }));
 }
 
-function buildBasicModeContext(
-  text: string,
-  sketchFiles: Array<{ path: string; content: string }>
-): string {
+function buildBasicModeContext(params: {
+  text: string;
+  sketchFiles: Array<{ path: string; content: string }>;
+  buildSketchContext: (files: Array<{ path: string; content: string }>) => string;
+}): string {
+  const { text, sketchFiles, buildSketchContext } = params;
+
   if (sketchFiles.length === 0) {
     return text;
   }
-  return `I have an Arduino sketch open.\n\n**User question:** ${text}`;
+
+  const sketchContext = buildSketchContext(sketchFiles);
+  return `Here are my current Arduino sketch files:\n\n${sketchContext}\n\n**User question:** ${text}`;
 }
 
 function buildConversationHistory(params: {
@@ -364,7 +378,6 @@ function createGenerationConfig(params: {
     includeThoughts: shouldIncludeThoughts(model),
     abortKey,
     thinkingBudget: -1,
-    enableGoogleSearch: true,
     context: buildConversationContext(conversationHistory),
   };
 }
@@ -415,7 +428,7 @@ async function handleGenerationSuccess(params: {
 }
 
 function isActiveRequest(deps: BasicModeSendDeps, requestSeq: number): boolean {
-  return requestSeq === deps.stateData.requestSeq;
+  return requestSeq === deps.getStateData().requestSeq;
 }
 
 async function applyResultToLastAssistant(params: {
@@ -425,7 +438,7 @@ async function applyResultToLastAssistant(params: {
   abortKey: string;
 }): Promise<void> {
   const { deps, res, requestSeq, abortKey } = params;
-  if (deps.stateData.currentAbortKey !== abortKey) {
+  if (deps.getStateData().currentAbortKey !== abortKey) {
     return;
   }
 
@@ -441,9 +454,10 @@ function updateTitleIfNeeded(params: {
   text: string;
 }): void {
   const { deps, current, text } = params;
-  const after = deps.stateData.sessions.slice();
-  const requestedId = deps.stateData.requestSessionId;
-  const idx = requestedId ? after.findIndex((s) => s.id === requestedId) : deps.stateData.active;
+  const state = deps.getStateData();
+  const after = state.sessions.slice();
+  const requestedId = state.requestSessionId;
+  const idx = requestedId ? after.findIndex((s) => s.id === requestedId) : state.active;
   const cur = after[idx];
   if (!cur) {
     return;
@@ -465,7 +479,7 @@ function handleGenerationError(params: {
   const { deps, err, requestSeq, model, estTokens } = params;
   spectreError('Spectre AI generation failed:', err?.message || err);
 
-  if (requestSeq !== deps.stateData.requestSeq) {
+  if (requestSeq !== deps.getStateData().requestSeq) {
     return;
   }
 
@@ -484,22 +498,26 @@ function logRequest(params: {
   const { deps, tokensUsed, model, success } = params;
   const now = Date.now();
 
-  deps.stateData.requestLogs = [
-    ...deps.stateData.requestLogs,
+  const state = deps.getStateData();
+  const requestLogs = [
+    ...state.requestLogs,
     { timestamp: now, tokensUsed, model, success },
   ];
 
   const currentDate = deps.getPacificDate();
-  if (deps.stateData.dailyTracker.date !== currentDate) {
-    deps.stateData.dailyTracker = {
-      date: currentDate,
-      requestCount: 0,
-      tokenCount: 0,
-    };
-  }
+  const existingTracker = state.dailyTracker;
+  const baseTracker =
+    existingTracker.date === currentDate
+      ? existingTracker
+      : { date: currentDate, requestCount: 0, tokenCount: 0 };
 
-  deps.stateData.dailyTracker.requestCount += 1;
-  deps.stateData.dailyTracker.tokenCount += tokensUsed;
+  const dailyTracker: DailyTracker = {
+    date: currentDate,
+    requestCount: baseTracker.requestCount + 1,
+    tokenCount: baseTracker.tokenCount + tokensUsed,
+  };
+
+  deps.setStateData({ requestLogs, dailyTracker });
 
   // Best-effort persistence; UI can still proceed if this fails.
   void deps.persistTrackingData();
@@ -557,8 +575,19 @@ function displayErrorMessage(params: {
 }): void {
   const { deps, errorMessage, shouldRetry } = params;
 
-  const sessions = deps.stateData.sessions.slice();
-  const current = sessions[deps.stateData.active];
+  const state = deps.getStateData();
+  const sessions = state.sessions.slice();
+  const current = sessions[state.active];
+  if (!current) {
+    deps.setStateData({
+      busy: false,
+      error: errorMessage,
+      currentAbortKey: undefined,
+      retryable: shouldRetry,
+    });
+    deps.deferScroll();
+    return;
+  }
   const messages = [
     ...current.messages,
     {
@@ -567,7 +596,7 @@ function displayErrorMessage(params: {
       text: `❌ **Error:** ${errorMessage}${shouldRetry ? '\n\n*Click the send button to retry.*' : ''}`,
     },
   ];
-  sessions[deps.stateData.active] = { ...current, messages };
+  sessions[state.active] = { ...current, messages };
 
   deps.setStateData({
     sessions,

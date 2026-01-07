@@ -83,7 +83,10 @@ export class SpectreSecretsServiceImpl implements SpectreSecretsService {
 
   /**
    * Write API key to storage (keychain + file fallback + memory).
-   * Strategy: Write to all storage locations in parallel for best reliability.
+   * Strategy:
+   * - Prefer OS keychain
+   * - Use plaintext file fallback ONLY if keychain storage fails
+   * - If keychain succeeds, remove any existing fallback file
    * @param key API key to store, or undefined to clear
    */
   private async writeKey(key: string | undefined): Promise<void> {
@@ -100,12 +103,19 @@ export class SpectreSecretsServiceImpl implements SpectreSecretsService {
     // Store in memory immediately for fast access
     this.memoryCache = key;
 
-    // Write to both keychain and file in parallel (best-effort)
-    // We don't await to avoid blocking, but we do want to attempt both
-    await Promise.allSettled([
-      this.keychain.storeCredentials(key),
-      this.writeFile(key),
-    ]);
+    // Prefer secure keychain. Only fall back to plaintext file if keychain fails.
+    try {
+      await this.keychain.storeCredentials(key);
+      // Keychain succeeded, ensure we don't keep a plaintext copy around.
+      await Promise.allSettled([this.deleteFile()]);
+    } catch (error) {
+      // Keychain unavailable or failed; use plaintext file as a last resort.
+      spectreWarn(
+        'Spectre API keychain storage failed; falling back to plaintext file storage.',
+        error
+      );
+      await this.writeFile(key);
+    }
   }
 
   /**

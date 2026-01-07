@@ -31,19 +31,19 @@ async function executeSketchFunction(
   switch (name) {
     case 'create_sketch':
       result = await handlers.agentCreateSketch(args.name, args.code);
-      return { success: true, result };
+      return { success: isSuccessResult(result), result };
 
     case 'read_sketch':
       result = await handlers.agentReadSketch();
-      return { success: true, result };
+      return { success: isSuccessResult(result), result };
 
     case 'verify_sketch':
       result = await handlers.agentVerifySketch();
-      return { success: true, result };
+      return { success: isSuccessResult(result), result };
 
     case 'upload_sketch':
       result = await handlers.agentUploadSketch();
-      return { success: true, result };
+      return { success: isSuccessResult(result), result };
 
     default:
       return null;

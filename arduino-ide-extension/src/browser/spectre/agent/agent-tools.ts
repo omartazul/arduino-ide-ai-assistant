@@ -200,6 +200,11 @@ export async function agentAddBoardUrl(
     return '❌ Board manager URL is required';
   }
 
+  const urlValidationError = validateBoardManagerUrl(url);
+  if (urlValidationError) {
+    return urlValidationError;
+  }
+
   try {
     const { urlAlreadyExists } = await BoardUrlHelper.addToConfiguration(ctx.configService as any, url);
 
@@ -215,6 +220,37 @@ export async function agentAddBoardUrl(
     spectreError('❌ Failed to add board manager URL:', error);
     return `❌ Failed to add board manager URL: ${error}`;
   }
+}
+
+function validateBoardManagerUrl(rawUrl: string): string | null {
+  const trimmed = rawUrl.trim();
+  if (trimmed.length > 2048) {
+    return '❌ Board manager URL is too long';
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return '❌ Invalid board manager URL (not a valid URL)';
+  }
+
+  const protocol = parsed.protocol.toLowerCase();
+  if (protocol !== 'https:' && protocol !== 'http:') {
+    return '❌ Board manager URL must be http(s)';
+  }
+
+  // Disallow credentials in URLs (e.g., https://user:pass@host/...)
+  if (parsed.username || parsed.password) {
+    return '❌ Board manager URL must not contain credentials';
+  }
+
+  // Most Arduino board indexes are JSON.
+  if (!parsed.pathname.toLowerCase().endsWith('.json')) {
+    return '❌ Board manager URL must end with .json';
+  }
+
+  return null;
 }
 
 export async function agentRemoveBoardUrl(

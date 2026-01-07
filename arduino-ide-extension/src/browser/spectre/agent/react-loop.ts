@@ -207,7 +207,7 @@ async function executeReActIteration(params: {
 function buildIterationPrompt(iteration: number, originalText: string): string {
     return iteration === 1
       ? originalText
-      : 'Continue with the next step based on the function results above. If all tasks are complete, respond with confirmation and no function calls.';
+  : 'Continue with the next step based on the function results above. If all tasks are complete, respond with a brief completion message and no function calls.';
 }
 
 function requiresFunctionCalling(response: any): boolean {

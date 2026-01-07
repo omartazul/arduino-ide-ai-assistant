@@ -332,7 +332,7 @@ const properties: ArduinoPreferenceSchemaProperties = {
     default: 'basic',
     markdownDescription: nls.localize(
       'arduino/preferences/spectre.mode',
-      "Operating mode for the Spectre assistant. **'basic'** provides direct question-and-answer responses for code explanations and guidance. **'agent'** enables autonomous task execution, including multi-step planning, code generation, and file modifications. Agent mode requires user confirmation before executing actions. Defaults to 'basic'."
+      "Operating mode for the Spectre assistant. **'basic'** provides direct question-and-answer responses for code explanations and guidance. **'agent'** enables autonomous task execution, including multi-step planning, code generation, and file modifications. Defaults to 'basic'."
     ),
   },
 };

@@ -17,22 +17,29 @@ interface ModelConfig {
  * Model configurations map.
  */
 const MODEL_CONFIGS: Record<string, ModelConfig> = {
-  'gemini-2.0-flash-exp': {
-    characterLimit: 8192,
+  // Current supported models (see preferences schema)
+  'gemini-2.5-flash': {
+    characterLimit: 100_000,
     rpmLimit: 10,
   },
   'gemini-2.5-flash-lite': {
-    characterLimit: 8192,
+    characterLimit: 66_668,
     rpmLimit: 15,
   },
+
+  // Legacy/experimental models (kept for backward compatibility)
+  'gemini-2.0-flash-exp': {
+    characterLimit: 100_000,
+    rpmLimit: 10,
+  },
   'gemini-1.5-flash': {
-    characterLimit: 8192,
+    characterLimit: 66_668,
     rpmLimit: 15,
   },
 };
 
 const DEFAULT_CONFIG: ModelConfig = {
-  characterLimit: 8192,
+  characterLimit: 100_000,
   rpmLimit: 10,
 };
 

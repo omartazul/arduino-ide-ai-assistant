@@ -324,7 +324,7 @@ export class UploadHelper {
     if (!hasActualErrors && categorized.successLines.length === 0) {
       return {
         success: false,
-        error: 'Upload completed without confirmation. Check the output manually.',
+        error: 'Upload outcome is unclear. Check the output manually.',
         shouldRetry: false,
       };
     }

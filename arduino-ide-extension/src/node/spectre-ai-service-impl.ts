@@ -449,7 +449,7 @@ export class SpectreAiServiceImpl implements SpectreAiService {
     let promptEstimate = 0;
 
     // 1. System instruction tokens (always included) - use mode-specific instruction
-    const systemInstruction = request.enableAgentMode
+    const systemInstruction = request.enableAgentMode === true
       ? AGENT_MODE_INSTRUCTION
       : BASIC_MODE_INSTRUCTION;
     promptEstimate += estimateTokens(systemInstruction);
@@ -491,8 +491,8 @@ export class SpectreAiServiceImpl implements SpectreAiService {
             maxOutputTokens,
           },
           // Add function declarations if agent mode is enabled
-          enableAgentMode: request.enableAgentMode,
-          functionDeclarations: request.enableAgentMode
+          enableAgentMode: request.enableAgentMode === true,
+          functionDeclarations: request.enableAgentMode === true
             ? request.functionDeclarations || AGENT_FUNCTIONS
             : undefined,
         },
@@ -1175,7 +1175,7 @@ export class SpectreAiServiceImpl implements SpectreAiService {
           `[Spectre AI] Generation attempt ${attempt + 1} failed:`,
           msg
         );
-        spectreError(`[Spectre AI] Error details:`, err);
+        spectreError(`[Spectre AI] Error details:`, sanitizeForLogging(err));
 
         // Retry once without thinkingConfig if API rejects it
         if (!triedNoThinking && /Unknown name "thinkingConfig"/i.test(msg)) {
@@ -1384,7 +1384,7 @@ export class SpectreAiServiceImpl implements SpectreAiService {
     const tools: any[] = [];
 
     // Add function calling tools if agent mode is enabled (takes priority)
-    if (request?.enableAgentMode && request.functionDeclarations) {
+    if (request?.enableAgentMode === true && request.functionDeclarations) {
       // Convert our FunctionDeclaration format to Gemini's format
       const functionDeclarations = request.functionDeclarations.map((fn) => ({
         name: fn.name,
@@ -1431,7 +1431,7 @@ export class SpectreAiServiceImpl implements SpectreAiService {
     });
 
     // Use mode-specific system instruction based on whether agent mode is enabled
-    const systemInstruction = request?.enableAgentMode
+    const systemInstruction = request?.enableAgentMode === true
       ? AGENT_MODE_INSTRUCTION
       : BASIC_MODE_INSTRUCTION;
 
@@ -1798,4 +1798,53 @@ function classifyError(err: any): ClassifiedError {
   }
 
   return { retryable: false, category: 'other', message };
+}
+
+function sanitizeForLogging(input: unknown): unknown {
+  const redactString = (value: string): string => {
+    // Common Google API key prefix is AIza; redact anything that looks like a key.
+    return value.replace(/AIza[0-9A-Za-z_\-]{20,}/g, '[REDACTED_API_KEY]');
+  };
+
+  const isSensitiveKey = (key: string): boolean => {
+    const k = key.toLowerCase();
+    return (
+      k === 'apikey' ||
+      k === 'api_key' ||
+      k === 'authorization' ||
+      k === 'x-goog-api-key' ||
+      k.includes('token') ||
+      k.includes('secret')
+    );
+  };
+
+  const seen = new WeakSet<object>();
+  const sanitizeAny = (value: any): any => {
+    if (typeof value === 'string') return redactString(value);
+    if (typeof value !== 'object' || value === null) return value;
+
+    if (seen.has(value)) return '[Circular]';
+    seen.add(value);
+
+    if (value instanceof Error) {
+      return {
+        name: value.name,
+        message: redactString(value.message || ''),
+        stack: value.stack ? redactString(value.stack) : undefined,
+      };
+    }
+
+    if (Array.isArray(value)) {
+      // Avoid huge logs
+      return value.slice(0, 50).map(sanitizeAny);
+    }
+
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = isSensitiveKey(k) ? '[REDACTED]' : sanitizeAny(v);
+    }
+    return out;
+  };
+
+  return sanitizeAny(input);
 }

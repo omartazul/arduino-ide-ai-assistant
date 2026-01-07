@@ -221,7 +221,7 @@ export class MemoryManager {
 - Greetings, thanks, pleasantries
 - Explanations that are easily re-derivable
 - Debugging steps that led nowhere
-- Redundant confirmations
+- Repeated acknowledgements
 
 **FORMAT:**
 Use structured bullet points with emoji tags for quick scanning:

@@ -165,7 +165,10 @@ async function main() {
   console.log('Compiling portable installer EXE (NSIS)...');
   const makensis = findMakensisExe();
 
-  const outExe = path.join(distDir, `arduino-ide_${version}_Windows_64bit_portable.exe`);
+  const outExe = path.join(
+    distDir,
+    `Arduino-IDE-AI-Assistant_${version}_Windows_64bit_portable.exe`
+  );
   const nsiTemplate = path.join(projectRoot, 'resources', 'portable-installer.nsi');
 
   // NSIS treats some backslash sequences (e.g. "\v") as escapes.
