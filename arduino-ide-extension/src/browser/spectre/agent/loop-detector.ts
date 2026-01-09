@@ -71,7 +71,7 @@ export function createLoopDetector(params: {
     return normalized;
   };
 
-  const getSortedArgsSignature = (
+  const getSortedArgsSignatureBase = (
     name: string,
     args: Record<string, unknown>
   ): string => {
@@ -85,19 +85,17 @@ export function createLoopDetector(params: {
     return `${name}:${JSON.stringify(sortedArgs)}`;
   };
 
+  const getSortedArgsSignature = (
+    name: string,
+    args: Record<string, unknown>
+  ): string => getSortedArgsSignatureBase(name, args || {});
+
   const getSortedNormalizedArgsSignature = (
     name: string,
     args: Record<string, unknown>
   ): string => {
     const normalized = normalizeArgs(name, args || {});
-    const sortedArgs = Object.keys(normalized)
-      .sort()
-      .reduce((acc, key) => {
-        acc[key] = normalized[key];
-        return acc;
-      }, {} as Record<string, unknown>);
-
-    return `${name}:${JSON.stringify(sortedArgs)}`;
+    return getSortedArgsSignatureBase(name, normalized);
   };
 
   const pushActionRecord = (record: LoopDetectorActionRecord): void => {

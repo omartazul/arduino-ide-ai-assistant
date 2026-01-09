@@ -73,28 +73,54 @@ export interface AgentActionsDeps {
   timing: AgentActionsTiming;
 }
 
+export interface CreateSketchArgs {
+  name?: string;
+  code?: string;
+}
+
+export interface SketchEditArgs {
+  filePath: string;
+  content: string;
+}
+
+export interface InstallBoardArgs {
+  platformId: string;
+  version?: string;
+}
+
+export interface BoardConfigArgs {
+  fqbn?: string;
+  options: string;
+}
+
+export type SelectBoardInput = string;
+export type PortInput = string;
+export type LibraryName = string;
+export type Url = string;
+export type UrlOrName = string;
+export type Query = string;
+export type PlatformId = string;
+export type Fqbn = string;
+
 export function createAgentActions(deps: AgentActionsDeps): {
-  agentCreateSketch: (name?: string, code?: string) => Promise<string>;
+  agentCreateSketch: (args?: CreateSketchArgs) => Promise<string>;
   agentReadSketch: () => Promise<string>;
   agentVerifySketch: () => Promise<string>;
   agentUploadSketch: () => Promise<string>;
   agentGetBoardsList: () => Promise<string>;
-  agentSelectBoard: (input: string) => Promise<string>;
-  agentSearchBoards: (query: string) => Promise<string>;
-  agentInstallBoard: (platformId: string, version?: string) => Promise<string>;
-  agentUninstallBoard: (platformId: string) => Promise<string>;
-  agentAddBoardUrl: (url: string) => Promise<string>;
-  agentRemoveBoardUrl: (urlOrName: string) => Promise<string>;
-  agentFetchBoardUrls: (query: string) => Promise<string>;
-  agentGetBoardConfig: (fqbn?: string) => Promise<string>;
-  agentSetBoardConfig: (
-    fqbn: string | undefined,
-    options: string
-  ) => Promise<string>;
+  agentSelectBoard: (input: SelectBoardInput) => Promise<string>;
+  agentSearchBoards: (query: Query) => Promise<string>;
+  agentInstallBoard: (args: InstallBoardArgs) => Promise<string>;
+  agentUninstallBoard: (platformId: PlatformId) => Promise<string>;
+  agentAddBoardUrl: (url: Url) => Promise<string>;
+  agentRemoveBoardUrl: (urlOrName: UrlOrName) => Promise<string>;
+  agentFetchBoardUrls: (query: Query) => Promise<string>;
+  agentGetBoardConfig: (fqbn?: Fqbn) => Promise<string>;
+  agentSetBoardConfig: (args: BoardConfigArgs) => Promise<string>;
   agentGetPortsList: () => Promise<string>;
-  agentSelectPort: (port: string) => Promise<string>;
-  agentInstallLibrary: (name: string) => Promise<string>;
-  agentUninstallLibrary: (name: string) => Promise<string>;
+  agentSelectPort: (port: PortInput) => Promise<string>;
+  agentInstallLibrary: (name: LibraryName) => Promise<string>;
+  agentUninstallLibrary: (name: LibraryName) => Promise<string>;
 } {
   const delay = async (ms: number): Promise<void> => {
     await new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -188,9 +214,11 @@ export function createAgentActions(deps: AgentActionsDeps): {
   };
 
   const agentModifySketch = async (
-    filePath: string,
-    content: string
+    filePathOrArgs: string | SketchEditArgs,
+    contentArg?: string
   ): Promise<string> => {
+    const filePath = typeof filePathOrArgs === 'string' ? filePathOrArgs : filePathOrArgs.filePath;
+    const content = typeof filePathOrArgs === 'string' ? contentArg! : filePathOrArgs.content;
     return await SketchOperations.agentModifySketch(
       {
         sketchesClient: {
@@ -294,10 +322,8 @@ export function createAgentActions(deps: AgentActionsDeps): {
   });
 
   return {
-    agentCreateSketch: async (
-      name?: string,
-      code?: string
-    ): Promise<string> => {
+    agentCreateSketch: async (args?: CreateSketchArgs): Promise<string> => {
+      const { name, code } = args || {};
       return await SketchOperations.agentCreateSketch(
         sketchOpsDeps(),
         name,
@@ -382,33 +408,31 @@ export function createAgentActions(deps: AgentActionsDeps): {
       );
     },
 
-    agentInstallLibrary: async (name: string): Promise<string> => {
+    agentInstallLibrary: async (name: LibraryName): Promise<string> => {
       return await AgentTools.agentInstallLibrary(libraryDeps(), name);
     },
 
-    agentUninstallLibrary: async (name: string): Promise<string> => {
+    agentUninstallLibrary: async (name: LibraryName): Promise<string> => {
       return await AgentTools.agentUninstallLibrary(libraryDeps(), name);
     },
 
-    agentAddBoardUrl: async (url: string): Promise<string> => {
+    agentAddBoardUrl: async (url: Url): Promise<string> => {
       return await AgentTools.agentAddBoardUrl(packageIndexDeps(), url);
     },
 
-    agentRemoveBoardUrl: async (urlOrName: string): Promise<string> => {
+    agentRemoveBoardUrl: async (urlOrName: UrlOrName): Promise<string> => {
       return await AgentTools.agentRemoveBoardUrl(
         packageIndexDeps(),
         urlOrName
       );
     },
 
-    agentFetchBoardUrls: async (query: string): Promise<string> => {
+    agentFetchBoardUrls: async (query: Query): Promise<string> => {
       return await AgentTools.agentFetchBoardUrls(packageIndexDeps(), query);
     },
 
-    agentInstallBoard: async (
-      platformId: string,
-      version?: string
-    ): Promise<string> => {
+    agentInstallBoard: async (args: InstallBoardArgs): Promise<string> => {
+      const { platformId, version } = args;
       return await PlatformTools.agentInstallBoard(
         platformDeps(),
         platformId,
@@ -416,22 +440,22 @@ export function createAgentActions(deps: AgentActionsDeps): {
       );
     },
 
-    agentSearchBoards: async (query: string): Promise<string> => {
+    agentSearchBoards: async (query: Query): Promise<string> => {
       return await PlatformTools.agentSearchBoards(platformSearchDeps(), query);
     },
 
-    agentUninstallBoard: async (platformId: string): Promise<string> => {
+    agentUninstallBoard: async (platformId: PlatformId): Promise<string> => {
       return await PlatformTools.agentUninstallBoard(
         platformDeps(),
         platformId
       );
     },
 
-    agentSelectBoard: async (input: string): Promise<string> => {
+    agentSelectBoard: async (input: SelectBoardInput): Promise<string> => {
       return await BoardTools.agentSelectBoard(boardDeps(), input);
     },
 
-    agentSelectPort: async (port: string): Promise<string> => {
+    agentSelectPort: async (port: PortInput): Promise<string> => {
       return await BoardTools.agentSelectPort(boardDeps(), port);
     },
 
@@ -443,15 +467,15 @@ export function createAgentActions(deps: AgentActionsDeps): {
       return await BoardTools.agentGetPortsList(boardDeps());
     },
 
-    agentGetBoardConfig: async (fqbn?: string): Promise<string> => {
+    agentGetBoardConfig: async (fqbn?: Fqbn): Promise<string> => {
       return await BoardTools.agentGetBoardConfig(boardDeps(), fqbn);
     },
 
-    agentSetBoardConfig: async (
-      fqbn: string | undefined,
-      options: string
-    ): Promise<string> => {
+    agentSetBoardConfig: async (args: BoardConfigArgs): Promise<string> => {
+      const { fqbn, options } = args;
       return await BoardTools.agentSetBoardConfig(boardDeps(), fqbn, options);
     },
   };
 }
+
+export type AgentActions = ReturnType<typeof createAgentActions>;

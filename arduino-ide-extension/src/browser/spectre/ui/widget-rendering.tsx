@@ -195,32 +195,22 @@ export function renderTaskList(props: TaskListProps): React.ReactNode {
 /**
  * Renders a single task item.
  */
-function renderTask(task: AgentTask): React.ReactNode {
-  let statusIcon = '';
-  let statusClass = '';
+const TASK_STATUS_MAP: Record<AgentTask['status'], { icon: string; className: string }> = {
+  'pending': { icon: '○', className: 'task-pending' },
+  'in-progress': { icon: '⏳', className: 'task-in-progress' },
+  'completed': { icon: '✓', className: 'task-completed' },
+  'failed': { icon: '✗', className: 'task-failed' },
+};
 
-  switch (task.status) {
-    case 'pending':
-      statusIcon = '○';
-      statusClass = 'task-pending';
-      break;
-    case 'in-progress':
-      statusIcon = '⏳';
-      statusClass = 'task-in-progress';
-      break;
-    case 'completed':
-      statusIcon = '✓';
-      statusClass = 'task-completed';
-      break;
-    case 'failed':
-      statusIcon = '✗';
-      statusClass = 'task-failed';
-      break;
-  }
+function renderTask(task: AgentTask): React.ReactNode {
+  const { icon, className } = TASK_STATUS_MAP[task.status] || {
+    icon: '',
+    className: '',
+  };
 
   return (
-    <div key={task.id} className={`spectre-task ${statusClass}`}>
-      <span className="spectre-task-icon">{statusIcon}</span>
+    <div key={task.id} className={`spectre-task ${className}`}>
+      <span className="spectre-task-icon">{icon}</span>
       <span className="spectre-task-description">{task.description}</span>
       {task.error && (
         <div className="spectre-task-error">Error: {task.error}</div>
@@ -422,63 +412,89 @@ function getCharCountStatusClass(
 }
 
 /**
- * Gets CSS class for send button based on state.
+ * Aggregates send-button state into a single helper to avoid primitive-obsession
+ * and reduce the number of small parameterized helper functions.
  */
-function getSendButtonClass(
-  busy: boolean,
-  inputLength: number,
-  charLimit: number
-): string {
-  if (busy) {
-    return 'spectre-inline-send spectre-stop';
-  }
-  if (inputLength > charLimit) {
-    return 'spectre-inline-send spectre-send spectre-disabled';
-  }
+interface SendButtonState {
+  busy: boolean;
+  input: string;
+  charLimit: number;
+}
+
+/* Helper functions to simplify decision logic and reduce cyclomatic complexity */
+interface SendButtonInternalState {
+  busy: boolean;
+  input: string;
+  inputLength: number;
+  charLimit: number;
+  tooLong: boolean;
+}
+
+function getSendButtonClassName(state: Pick<SendButtonInternalState, 'busy' | 'tooLong'>): string {
+  const { busy, tooLong } = state;
+  if (busy) return 'spectre-inline-send spectre-stop';
+  if (tooLong) return 'spectre-inline-send spectre-send spectre-disabled';
   return 'spectre-inline-send spectre-send';
 }
 
-/**
- * Gets aria-label for send button based on state.
- */
 function getSendButtonAriaLabel(
-  busy: boolean,
-  inputLength: number,
-  charLimit: number
+  state: Pick<SendButtonInternalState, 'inputLength' | 'charLimit' | 'busy' | 'tooLong'>
 ): string {
-  if (inputLength > charLimit) {
+  const { inputLength, charLimit, busy, tooLong } = state;
+  if (tooLong) {
     return `Message too long (${inputLength}/${charLimit})`;
   }
-  return busy ? 'Stop response' : 'Send message';
-}
-
-/**
- * Gets title tooltip for send button based on state.
- */
-function getSendButtonTitle(
-  busy: boolean,
-  inputLength: number,
-  charLimit: number
-): string {
-  if (inputLength > charLimit) {
-    return `Message exceeds ${charLimit.toLocaleString()} character limit by ${(
-      inputLength - charLimit
-    ).toLocaleString()} characters. Please shorten your message.`;
+  if (busy) {
+    return 'Stop response';
   }
-  return busy ? 'Stop response' : 'Send message';
+  return 'Send message';
 }
 
-/**
- * Gets icon/text for send button based on state.
- */
-function getSendButtonContent(
-  busy: boolean,
-  inputLength: number,
-  charLimit: number
+function getSendButtonTitle(
+  state: Pick<SendButtonInternalState, 'inputLength' | 'charLimit' | 'busy' | 'tooLong'>
 ): string {
+  const { inputLength, charLimit, busy, tooLong } = state;
+  if (tooLong) {
+    return `Message exceeds ${charLimit.toLocaleString()} character limit by ${(inputLength - charLimit).toLocaleString()} characters. Please shorten your message.`;
+  }
+  if (busy) {
+    return 'Stop response';
+  }
+  return 'Send message';
+}
+
+function getSendButtonContent(state: Pick<SendButtonInternalState, 'busy' | 'tooLong'>): string {
+  const { busy, tooLong } = state;
   if (busy) return '■';
-  if (inputLength > charLimit) return '⚠';
+  if (tooLong) return '⚠';
   return '➤';
+}
+
+function isSendButtonDisabled(state: Pick<SendButtonInternalState, 'busy' | 'input' | 'tooLong'>): boolean {
+  const { busy, input, tooLong } = state;
+  return !busy && (!input.trim() || tooLong);
+}
+
+function getSendButtonState(state: SendButtonState) {
+  const { busy, input, charLimit } = state;
+  const inputLength = input.length;
+  const tooLong = inputLength > charLimit;
+
+  const internalState: SendButtonInternalState = {
+    busy,
+    input,
+    inputLength,
+    charLimit,
+    tooLong,
+  };
+
+  const className = getSendButtonClassName(internalState);
+  const ariaLabel = getSendButtonAriaLabel(internalState);
+  const title = getSendButtonTitle(internalState);
+  const content = getSendButtonContent(internalState);
+  const disabled = isSendButtonDisabled(internalState);
+
+  return { className, ariaLabel, title, content, disabled };
 }
 
 /**
@@ -508,6 +524,9 @@ export function renderInputArea(props: InputAreaProps): React.ReactNode {
     }
   };
 
+  const inputLength = input.length;
+  const sendState = getSendButtonState({ busy, input, charLimit });
+
   return (
     <div className="spectre-input">
       <div className="input-wrap">
@@ -531,26 +550,26 @@ export function renderInputArea(props: InputAreaProps): React.ReactNode {
             <span
               id="char-count-status"
               className={`spectre-chip compact ${getCharCountStatusClass(
-                input.length,
+                inputLength,
                 charLimit
               )}`}
               role="status"
               aria-live="polite"
-              title={`Character count: ${input.length.toLocaleString()} / ${charLimit.toLocaleString()}`}
+              title={`Character count: ${inputLength.toLocaleString()} / ${charLimit.toLocaleString()}`}
             >
-              {input.length.toLocaleString()}/{charLimit.toLocaleString()}
+              {inputLength.toLocaleString()}/{charLimit.toLocaleString()}
             </span>
             {inlineQuota}
           </div>
           <button
-            className={getSendButtonClass(busy, input.length, charLimit)}
+            className={sendState.className}
             onClick={handleButtonClick}
-            disabled={!busy && (!input.trim() || input.length > charLimit)}
-            aria-label={getSendButtonAriaLabel(busy, input.length, charLimit)}
+            disabled={sendState.disabled}
+            aria-label={sendState.ariaLabel}
             aria-pressed={busy}
-            title={getSendButtonTitle(busy, input.length, charLimit)}
+            title={sendState.title}
           >
-            {getSendButtonContent(busy, input.length, charLimit)}
+            {sendState.content}
           </button>
         </div>
         {memoryStats}

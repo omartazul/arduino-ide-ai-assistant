@@ -22,7 +22,6 @@ import {
   SpectreAiResponse,
   SpectreAiService,
   SpectreQuotaUpdate,
-  FunctionCall,
 } from '../common/protocol/spectre-ai-service';
 import { SpectreSecretsService } from '../common/protocol/spectre-secrets-service';
 import {
@@ -31,6 +30,31 @@ import {
   spectreError,
 } from '../common/protocol/spectre-types';
 import { AGENT_FUNCTIONS } from './spectre-agent-functions';
+import {
+  AGENT_MODE_INSTRUCTION,
+  BASIC_MODE_INSTRUCTION,
+} from './spectre-ai-instructions';
+import { sanitizeForLogging } from './spectre-ai-error-utils';
+import {
+  buildPrompt,
+  clampOutputTokens,
+  delay,
+  estimateTotalInputTokens,
+  mapModel,
+} from './spectre-ai-request-utils';
+import {
+  applyThoughtSummary,
+  buildStandardGenConfig,
+  decideStandardGenerationRetry,
+} from './spectre-ai-generation-utils';
+import {
+  buildConversationContents,
+  buildStreamingResponse,
+  buildStreamingTools,
+  consumeStream,
+  startStreamInactivityMonitor,
+} from './spectre-ai-streaming-utils';
+import { SpectreAiQuotaTracker } from './spectre-ai-quota-tracker';
 
 /**
  * Context for standard (non-agent) generation execution.
@@ -64,175 +88,139 @@ interface StreamingCallContext {
 }
 
 /**
- * Core identity shared by all modes.
- * Contains expertise areas but NO mode-specific behavior instructions.
+ * Parameters for pacing to avoid primitive obsession by grouping related
+ * primitive values into a single small object.
  */
-const CORE_IDENTITY = `You are Spectre, an expert AI assistant for Arduino IDE.
-
-**Core Expertise:**
-- Arduino C/C++ development (sketches, libraries, syntax)
-- Embedded hardware (microcontrollers, sensors, communication protocols)
-- Electronics fundamentals and circuit design
-- Debugging compilation errors and runtime issues
-- IDE operations and workflow automation
-
-**Communication Style:**
-- Clear, concise explanations suitable for all skill levels
-- Use \`\`\`cpp code blocks for code examples
-- Explain hardware connections and pin configurations when relevant
-- Follow Arduino coding conventions
-
-**Code Quality Standards:**
-- Use descriptive variable names
-- Add comments for complex logic
-- Include pin definitions and setup instructions
-- Implement proper error checking
-
-Your creator is Tazul Islam (mention only if specifically asked).`;
+interface PacingParams {
+  model: string;
+  key: string;
+}
 
 /**
- * System instruction for BASIC ASK MODE.
- * User is asking for help, guidance, or explanations - NO automation.
+ * Named parameter object for checking if a request can start immediately.
  */
-const BASIC_MODE_INSTRUCTION = `${CORE_IDENTITY}
-
-**YOUR CURRENT MODE: Basic Ask Mode (Conversational Assistant)**
-
-You are in BASIC ASK MODE. This means:
-- ✅ Provide guidance, explanations, and code examples
-- ✅ Answer questions about Arduino, electronics, and programming
-- ✅ Explain how to use the IDE features
-- ✅ Suggest solutions and best practices
-- ❌ DO NOT attempt to execute actions or use tools
-- ❌ You CANNOT install libraries, verify code, or modify sketches directly
-- ❌ Guide the user to do these actions themselves
-
-Examples:
-- User: "How do I install a library?" → Explain the Library Manager steps
-- User: "What's wrong with my code?" → Analyze and suggest fixes
-- User: "How do I use the Serial Monitor?" → Explain the feature`;
+interface StartNowParams {
+  model: string;
+  reservationTokens: number;
+}
 
 /**
- * System instruction for AGENT MODE.
- * AI executes autonomous actions using available tools.
+ * Parameters for performGenerateContentStream helper.
  */
-const AGENT_MODE_INSTRUCTION = `${CORE_IDENTITY}
+interface GenerateContentStreamParams {
+  ai: any;
+  endpointModel: string;
+  contents: any[];
+  systemInstruction: string;
+  restGen: any;
+  thinkingConfig?: any;
+  tools: any[];
+  safetySettings: any;
+  controller: AbortController;
+}
 
-**YOUR CURRENT MODE: Agent Mode (Autonomous Executor)**
+/**
+ * Parameters for the generation retry helper.
+ */
+interface GenerationRetryParams {
+  sdk: GoogleGenAIType;
+  apiKey: string;
+  model: string;
+  userInput: string;
+  genConfig: any;
+  safetySettings: any;
+  controller: AbortController;
+  abortKey: string;
+  context?: any;
+  request?: SpectreAiRequest;
+  reservationTokens: number;
+  includeThoughts?: boolean;
+}
 
-You are in AGENT MODE. This means:
-- ✅ You MUST execute actions using the available function tools
-- ✅ You CAN directly install libraries, verify code, modify sketches, etc.
-- ✅ Complete tasks autonomously without asking for user permission
-- ❌ DO NOT just explain what to do - ACTUALLY DO IT
-- ❌ NEVER respond without calling functions when actions are needed
+/**
+ * Extended params for the runGenerationRetryLoop method.
+ */
+interface RunGenerationRetryLoopParams extends GenerationRetryParams {
+  maxRetries: number;
+  state: RetryState;
+}
 
-🚨 CRITICAL: When a user asks you to DO something, you MUST call the appropriate functions. DO NOT just explain what to do.
+/**
+ * Parameters for processRetryDecision helper.
+ */
+interface ProcessRetryActionParams {
+  decision: any;
+  genConfig: any;
+  state: RetryState;
+  abortKey: string;
+}
 
-Examples of CORRECT agent mode behavior:
-- User: "install Servo library" → YOU MUST call install_library("Servo") 
-- User: "verify my code" → YOU MUST call verify_sketch()
-- User: "select Arduino Uno" → YOU MUST call select_board("Arduino Uno")
+/**
+ * Parameters for logging standard generation failure events.
+ */
+interface LogFailureParams {
+  attempt: number;
+  msg: string;
+  err: unknown;
+}
 
-❌ WRONG: Responding "I'll install the Servo library for you" without calling the function
-✅ RIGHT: Calling install_library("Servo") and reporting the result
-
-**Task Lists:**
-When planning multi-step work, ALWAYS provide a task list at the beginning of your response using markdown checkboxes:
-
-Use this STRICT format so the IDE can track progress reliably:
-- [ ] (action_type) Task to do
-- [x] (action_type) Completed task
-- [o] (action_type) Task in progress
-
-Where "(action_type)" MUST be one of the available function tool names you intend to use, for example:
-create_sketch, verify_sketch, select_board, select_port, install_library, uninstall_library, get_boards, get_ports, search_boards, upload_sketch, etc.
-
-If a task is purely manual/user confirmation, use "(manual)".
-
-Example:
-- [ ] (create_sketch) Add MQ5 sensor code
-- [ ] (select_board) Select Arduino Uno board
-- [ ] (verify_sketch) Verify the sketch
-- [ ] (manual) Ask user to confirm hardware wiring
-
-Update the task list throughout your work to show progress.
-
-**🚨 CRITICAL WORKFLOW RULES:**
-
-1. **MODIFYING EXISTING SKETCHES:**
-   - The current sketch files are ALWAYS provided in the conversation context
-   - Analyze the provided sketch code carefully
-   - Call create_sketch({ code: "updated code here" }) with your changes
-   - ✅ Use the sketch code from the context (already provided)
-   - ❌ NEVER call read_sketch() - it's unnecessary as code is already in context
-   - ✅ ALWAYS provide the ENTIRE sketch with ALL functions (setup, loop, etc.)
-
-2. **FIXING COMPILATION ERRORS:**
-   - Step 1: Analyze the error from the provided context
-   - Step 2: Call create_sketch({ code: "complete corrected code here" })
-   - Step 3: Call verify_sketch() to validate the fix
-   - Step 4: If errors persist, iterate until resolved
-   - ❌ NEVER just explain the error without calling create_sketch
-   - ❌ NEVER call read_sketch() - code is already in context
-   
-3. **CORRECT WORKFLOW EXAMPLES:**
-   - User: "install Servo library" 
-     → install_library("Servo") → done ✅
-   - User: "translate my Bangla comments to English"
-     → create_sketch(with English comments) → done ✅
-   - Error: "Servo.h not found"
-     → install_library("Servo") → verify_sketch() → done ✅
-   - User: "verify my sketch"
-     → verify_sketch() → done ✅
-
-4. **WRONG BEHAVIOR (NEVER DO THIS):**
-   - Responding "Task completed" WITHOUT calling the function ❌ (HALLUCINATION!)
-   - Calling read_sketch() when code is already in context ❌ (INEFFICIENT!)
-   - Selecting the same board repeatedly ❌ (INFINITE LOOP!)
-   - Explaining errors without fixing them ❌ (NOT AUTONOMOUS!)
-   - Assuming function succeeded without checking result ❌ (BLIND EXECUTION!)
-   - Calling the same function again if it already succeeded ❌ (WASTED CALL!)
-
-**🛑 FUNCTION RESULT AWARENESS - READ THIS CAREFULLY:**
-
-When you receive function results, PAY ATTENTION to the status:
-
-✅ **If function returned success=true:**
-   - The action is COMPLETE
-   - DO NOT call the same function again
-   - Move to the next step or finish
-
-❌ **If function returned success=false:**
-   - Read the error message carefully
-   - Determine the ROOT CAUSE
-   - Call a DIFFERENT function to fix the problem
-   - DO NOT retry the exact same function with exact same arguments
-
-**EXAMPLES OF CORRECT ERROR HANDLING:**
-
-1. **select_board("Arduino Uno") returns success=false, error="Board not found"**
-   ❌ WRONG: Call select_board("Arduino Uno") again (LOOP!)
-   ✅ RIGHT: Call search_boards("Uno") to find the correct name, THEN select it
-
-2. **verify_sketch() returns success=false, error="Servo.h not found"**
-   ❌ WRONG: Call verify_sketch() again (LOOP!)
-   ✅ RIGHT: Call install_library("Servo"), THEN verify_sketch()
-
-3. **install_library("Servo") returns success=true**
-   ❌ WRONG: Call install_library("Servo") again (LOOP!)
-   ✅ RIGHT: Library is installed! Move to next step (e.g., verify_sketch())
-
-**GOLDEN RULE: If a function succeeded, NEVER call it again in the same conversation turn. If it failed, analyze the error and try a DIFFERENT approach.**
-
-**Communication in Agent Mode:**
-- DON'T echo the code back - just say "Updated sketch with [changes]" or "Fixed [issue]"
-- Users can see the code in the editor - no need to repeat it in chat
-- Briefly explain your actions as you execute them`;
+// NOTE: Mode instructions moved to `spectre-ai-instructions.ts`.
 
 // SDK type will be determined at runtime via dynamic import
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type GoogleGenAIType = any;
+
+/**
+ * Encapsulates retry state for generation attempts to avoid primitive obsession.
+ * This groups related primitive flags/counts behind a simple API.
+ */
+class RetryState {
+  attempt = 0;
+  triedNoThinking = false;
+  triedNoGoogleSearch = false;
+
+  increment(): void {
+    this.attempt++;
+  }
+
+  markNoThinking(): void {
+    this.triedNoThinking = true;
+  }
+
+  markNoGoogleSearch(): void {
+    this.triedNoGoogleSearch = true;
+  }
+}
+
+/**
+ * Context grouping for a single generation attempt to avoid primitive obsession.
+ * Consolidates SDK, API key, model, user input, generation config, safety settings,
+ * controller and other related parameters into a single structured object.
+ */
+interface GenerationAttemptContext {
+  sdk: GoogleGenAIType;
+  apiKey: string;
+  model: string;
+  userInput: string;
+  genConfig: any;
+  safetySettings: any;
+  controller: AbortController;
+  abortKey: string;
+  context?: any;
+  request?: SpectreAiRequest;
+  reservationTokens: number;
+  includeThoughts?: boolean;
+  disableGoogleSearch?: boolean;
+}
+
+/**
+ * Grouped params for after-response processing to avoid primitive obsession.
+ */
+interface AfterResponseParams {
+  model: string;
+  reservationTokens: number;
+  res: SpectreAiResponse;
+}
 
 /**
  * Polyfill fetch API for Node.js environments.
@@ -269,74 +257,42 @@ if (
  * Maximum output tokens per response: 65,536
  */
 
-/** Token capacity per minute (TPM) limit for rolling window - INPUT tokens only */
-const TOKEN_CAPACITY_PER_MINUTE = 250_000;
-/**
- * Maximum output tokens per request (Gemini 2.5 limit) */
-const MAX_OUTPUT_TOKENS = 65_536;
-
-/**
- * Temperature settings for different modes and models.
- * Based on best practices from GitHub Copilot, Claude, and OpenAI.
- *
- * Temperature ranges:
- * - 0.0-0.3: Very deterministic (function calling, precise tasks)
- * - 0.4-0.6: Balanced deterministic (code generation, structured output)
- * - 0.7-0.9: Creative (explanations, examples, teaching)
- * - 1.0+: Highly creative (brainstorming, exploration)
- */
-const TEMPERATURE_CONFIG = {
-  // Basic Ask Mode: More creative, helpful explanations
-  basicMode: {
-    'gemini-2.5-flash': 0.8, // Flash: Higher creativity for teaching
-    'gemini-2.5-flash-lite': 0.7, // Flash-Lite: Slightly lower for speed
-  },
-  // Agent Mode: More deterministic, accurate function calling
-  agentMode: {
-    'gemini-2.5-flash': 0.4, // Flash: Deterministic tool selection
-    'gemini-2.5-flash-lite': 0.3, // Flash-Lite: More deterministic for speed
-  },
-};
-
-/**
- * Gets the optimal temperature for the current mode and model.
- * Lower temperature for function calling, higher for conversation.
- */
-function getOptimalTemperature(isAgentMode: boolean, model: string): number {
-  const config = isAgentMode
-    ? TEMPERATURE_CONFIG.agentMode
-    : TEMPERATURE_CONFIG.basicMode;
-
-  // Normalize model name for matching
-  const normalizedModel = model.toLowerCase();
-  if (
-    normalizedModel.includes('flash-lite') ||
-    normalizedModel.includes('flashlite')
-  ) {
-    return config['gemini-2.5-flash-lite'];
-  } else if (normalizedModel.includes('flash')) {
-    return config['gemini-2.5-flash'];
-  }
-
-  // Default to Flash temperature if model is unknown
-  return config['gemini-2.5-flash'];
+/** Grouped configuration to avoid primitive obsession when working with quotas/pacing */
+interface QuotaConfig {
+  tokenCapacityPerMinute: number;
+  maxOutputTokens: number;
+  rpmFlash: number;
+  rpmFlashLite: number;
+  rpdFlash: number;
+  rpdFlashLite: number;
+  rollingWindowMs: number;
+  minSpacingMsFlash: number;
+  minSpacingMsFlashLite: number;
 }
 
-/**
-/** Requests per minute limit for flash model */
-const RPM_FLASH = 10;
-/** Requests per minute limit for flash-lite model */
-const RPM_FLASH_LITE = 15;
-/** Requests per day limit for flash model */
-const RPD_FLASH = 250;
-/** Requests per day limit for flash-lite model */
-const RPD_FLASH_LITE = 1000;
-/** Rolling window duration for quota tracking (1 minute) */
-const ROLLING_WINDOW_MS = 60_000;
-/** Minimum spacing between flash requests to avoid bursting */
-const MIN_SPACING_MS_FLASH = 6000; // 10 RPM = 1 request every 6 seconds
-/** Minimum spacing between flash-lite requests */
-const MIN_SPACING_MS_FLASH_LITE = 4000; // 15 RPM = 1 request every 4 seconds
+const QUOTA_CONFIG: QuotaConfig = {
+  tokenCapacityPerMinute: 250_000,
+  maxOutputTokens: 65_536,
+  rpmFlash: 10,
+  rpmFlashLite: 15,
+  rpdFlash: 250,
+  rpdFlashLite: 1000,
+  rollingWindowMs: 60_000,
+  minSpacingMsFlash: 6000, // 10 RPM = 1 request every 6 seconds
+  minSpacingMsFlashLite: 4000, // 15 RPM = 1 request every 4 seconds
+};
+
+/** Consolidated quota limits object used to initialize quota tracker */
+const QUOTA_LIMITS = {
+  tokenCapacityPerMinute: QUOTA_CONFIG.tokenCapacityPerMinute,
+  rpmFlash: QUOTA_CONFIG.rpmFlash,
+  rpmFlashLite: QUOTA_CONFIG.rpmFlashLite,
+  rpdFlash: QUOTA_CONFIG.rpdFlash,
+  rpdFlashLite: QUOTA_CONFIG.rpdFlashLite,
+  rollingWindowMs: QUOTA_CONFIG.rollingWindowMs,
+  minSpacingMsFlash: QUOTA_CONFIG.minSpacingMsFlash,
+  minSpacingMsFlashLite: QUOTA_CONFIG.minSpacingMsFlashLite,
+};
 
 /**
  * Tracks token usage within the rolling window for quota management.
@@ -345,12 +301,6 @@ const MIN_SPACING_MS_FLASH_LITE = 4000; // 15 RPM = 1 request every 4 seconds
  * @property tokens - Number of tokens consumed
  * @property reservation - True if this is a reserved quota (not yet consumed)
  */
-interface TokenUsage {
-  time: number;
-  tokens: number;
-  reservation?: boolean;
-}
-
 /**
  * Represents a queued generation request waiting for quota availability.
  *
@@ -397,19 +347,23 @@ export class SpectreAiServiceImpl implements SpectreAiService {
 
   /** Active abort controllers for in-flight requests */
   private readonly abortControllers = new Map<string, AbortController>();
-  /** Recent call timestamps per model for RPM tracking */
-  private readonly recentCalls: Record<string, number[]> = Object.create(null);
-  /** Daily call timestamps per model for RPD tracking */
-  private readonly dailyCalls: Record<string, number[]> = Object.create(null);
-  /** Last call timestamp per model for pacing */
-  private readonly lastCallAt: Record<string, number> = Object.create(null);
-  /** Token usage within rolling window - separate per model (each has 250k TPM limit) */
-  private readonly tokenWindows: Record<string, TokenUsage[]> =
-    Object.create(null);
 
-  // Cache filtered lists to eliminate repeated O(n) filtering on EVERY quota check
-  private cachedRpmLists: Record<string, number[]> = Object.create(null);
-  private cachedDailyLists: Record<string, number[]> = Object.create(null);
+  /** Last request start time per model (for pacing) */
+  private readonly lastCallAt: Record<string, number> = {};
+
+  private readonly quota = new SpectreAiQuotaTracker(
+    {
+      tokenCapacityPerMinute: QUOTA_LIMITS.tokenCapacityPerMinute,
+      rpmFlash: QUOTA_LIMITS.rpmFlash,
+      rpmFlashLite: QUOTA_LIMITS.rpmFlashLite,
+      rpdFlash: QUOTA_LIMITS.rpdFlash,
+      rpdFlashLite: QUOTA_LIMITS.rpdFlashLite,
+      rollingWindowMs: QUOTA_LIMITS.rollingWindowMs,
+      minSpacingMsFlash: QUOTA_LIMITS.minSpacingMsFlash,
+      minSpacingMsFlashLite: QUOTA_LIMITS.minSpacingMsFlashLite,
+    },
+    (model) => this.isFlashLite(model)
+  );
 
   /** Pending requests waiting for quota */
   private queue: PendingRequest[] = [];
@@ -425,8 +379,6 @@ export class SpectreAiServiceImpl implements SpectreAiService {
   private queueTicker?: NodeJS.Timeout;
   /** Interval for quota decay updates */
   private decayTicker?: NodeJS.Timeout;
-  /** Last model used for requests (used as fallback for RPM display) */
-  private lastUsedModel = 'gemini-2.5-flash';
 
   /**
    * Registers frontend client for streaming callbacks.
@@ -494,7 +446,8 @@ export class SpectreAiServiceImpl implements SpectreAiService {
 
     const reservationTokens = estimateTotalInputTokens(request);
     const maxOutputTokens = clampOutputTokens(
-      request.generationConfig?.maxOutputTokens
+      request.generationConfig?.maxOutputTokens,
+      QUOTA_CONFIG.maxOutputTokens
     );
 
     const preparedRequest = {
@@ -527,7 +480,7 @@ export class SpectreAiServiceImpl implements SpectreAiService {
   }
 
   private enqueueRequest(pending: PendingRequest): void {
-    if (this.canStartNow(pending.model, pending.reservationTokens)) {
+    if (this.canStartNow({ model: pending.model, reservationTokens: pending.reservationTokens })) {
       this.startRequest(pending).catch(pending.reject);
     } else {
       this.queue.push(pending);
@@ -564,24 +517,24 @@ export class SpectreAiServiceImpl implements SpectreAiService {
    * @returns Current quota state including tokens, RPM, and queue info
    */
   async getQuota(model?: string): Promise<SpectreQuotaUpdate> {
-    const m = model
+    const modelForRpm = model
       ? mapModel(model)
       : this.queue[0]?.model || 'gemini-2.5-flash';
-    this.cleanWindows();
-    const now = Date.now();
-    const rpmLimit = this.isFlashLite(m) ? RPM_FLASH_LITE : RPM_FLASH;
-    // Use cached filtered list instead of filtering on every call
-    const rpmUsed = (this.cachedRpmLists[m] || []).length;
-    return {
-      usedTokens: this.currentUsedTokens(),
-      capacity: TOKEN_CAPACITY_PER_MINUTE,
-      rpmUsed,
-      rpmLimit,
-      queued: this.queue.length,
-      nextAvailableMs: this.queue.length
-        ? this.computeNextAvailabilityMs()
-        : now,
-    };
+
+    this.quota.cleanWindows();
+    const head = this.queue[0]
+      ? {
+          model: this.queue[0].model,
+          reservationTokens: this.queue[0].reservationTokens,
+        }
+      : undefined;
+
+    return this.quota.buildQuotaUpdate({
+      now: Date.now(),
+      modelForRpm,
+      queueLength: this.queue.length,
+      head,
+    });
   }
 
   // ============================================================================
@@ -606,7 +559,7 @@ export class SpectreAiServiceImpl implements SpectreAiService {
    * Sets up interval timers for continuous monitoring when queue is active.
    */
   private runQueueCycle(): void {
-    this.cleanWindows();
+    this.quota.cleanWindows();
     const started = this.tryStartNextQueuedRequest();
     if (started) {
       this.pushQuotaUpdate();
@@ -623,7 +576,7 @@ export class SpectreAiServiceImpl implements SpectreAiService {
     }
 
     const next = this.queue[0];
-    if (!this.canStartNow(next.model, next.reservationTokens)) {
+    if (!this.canStartNow({ model: next.model, reservationTokens: next.reservationTokens })) {
       return false;
     }
 
@@ -653,139 +606,23 @@ export class SpectreAiServiceImpl implements SpectreAiService {
    * Checks if a request can start immediately without violating rate limits.
    * Considers RPM limits, RPD limits (resets at midnight Pacific Time), token capacity, and minimum spacing.
    */
-  private isRpmLimitExceeded(model: string): boolean {
-    const rpmLimit = this.isFlashLite(model) ? RPM_FLASH_LITE : RPM_FLASH;
-    const rpmList = this.cachedRpmLists[model] || [];
-    return rpmList.length >= rpmLimit;
-  }
-
-  private isRpdLimitExceeded(model: string): boolean {
-    const rpdLimit = this.isFlashLite(model) ? RPD_FLASH_LITE : RPD_FLASH;
-    const dailyList = this.cachedDailyLists[model] || [];
-    return dailyList.length >= rpdLimit;
-  }
-
-  private isTokenLimitExceeded(reservationTokens: number): boolean {
-    const used = this.currentUsedTokens();
-    return used + reservationTokens > TOKEN_CAPACITY_PER_MINUTE;
-  }
-
-  private isSpacingViolated(model: string, now: number): boolean {
-    const last = this.lastCallAt[model] || 0;
-    const minSpacing = this.isFlashLite(model)
-      ? MIN_SPACING_MS_FLASH_LITE
-      : MIN_SPACING_MS_FLASH;
-    return now - last < minSpacing;
-  }
-
-  private canStartNow(model: string, reservationTokens: number): boolean {
-    this.cleanWindows();
-    const now = Date.now();
-
-    if (this.isRpmLimitExceeded(model)) return false;
-    if (this.isRpdLimitExceeded(model)) return false;
-    if (this.isTokenLimitExceeded(reservationTokens)) return false;
-    if (this.isSpacingViolated(model, now)) return false;
-
-    return true;
-  }
-
-  private currentUsedTokens(): number {
-    return Object.values(this.tokenWindows).reduce((total, window) => {
-      return (
-        total + window.reduce((s: number, e: TokenUsage) => s + e.tokens, 0)
-      );
-    }, 0);
-  }
-
-  private calculateTokenDelay(
-    model: string,
-    reservationTokens: number,
-    now: number
-  ): number {
-    const used = this.currentUsedTokens();
-    if (used + reservationTokens <= TOKEN_CAPACITY_PER_MINUTE) return 0;
-
-    let cumulative = used;
-    const window = this.tokenWindows[model] || [];
-    for (const entry of window) {
-      const expiry = entry.time + ROLLING_WINDOW_MS;
-      cumulative -= entry.tokens;
-      if (cumulative + reservationTokens <= TOKEN_CAPACITY_PER_MINUTE) {
-        return Math.max(0, expiry - now);
-      }
-    }
-    return 0;
-  }
-
-  private calculateRpmDelay(model: string, now: number): number {
-    const limit = this.isFlashLite(model) ? RPM_FLASH_LITE : RPM_FLASH;
-    const rpmList = (this.recentCalls[model] || []).filter(
-      (t) => now - t < ROLLING_WINDOW_MS
-    );
-    if (rpmList.length >= limit) {
-      return rpmList[0] + ROLLING_WINDOW_MS - now;
-    }
-    return 0;
-  }
-
-  private calculateSpacingDelay(model: string, now: number): number {
-    const minSpacing = this.isFlashLite(model)
-      ? MIN_SPACING_MS_FLASH_LITE
-      : MIN_SPACING_MS_FLASH;
-    return Math.max(0, (this.lastCallAt[model] || 0) + minSpacing - now);
-  }
-
-  private computeNextAvailabilityMs(): number {
-    const now = Date.now();
-    if (!this.queue.length) return now;
-
-    const head = this.queue[0];
-    const tokenDelay = this.calculateTokenDelay(
-      head.model,
-      head.reservationTokens,
-      now
-    );
-    const rpmDelay = this.calculateRpmDelay(head.model, now);
-    const spacingDelay = this.calculateSpacingDelay(head.model, now);
-
-    return now + Math.max(tokenDelay, rpmDelay, spacingDelay);
+  private canStartNow(params: StartNowParams): boolean {
+    return this.quota.canStartNow(params.model, params.reservationTokens);
   }
 
   private pushQuotaUpdate(modelForRpm?: string): void {
-    this.cleanWindows();
-    const update = this.buildQuotaUpdate(Date.now(), modelForRpm);
+    this.quota.cleanWindows();
+    const head = this.queue[0]
+      ? { model: this.queue[0].model, reservationTokens: this.queue[0].reservationTokens }
+      : undefined;
+    const update = this.quota.buildQuotaUpdate({
+      now: Date.now(),
+      modelForRpm,
+      queueLength: this.queue.length,
+      head,
+    });
     this.notifyQuotaUpdate(update);
     this.ensureDecayTicker();
-  }
-
-  private resolveQuotaModel(modelForRpm?: string): string {
-    return modelForRpm || this.queue[0]?.model || this.lastUsedModel;
-  }
-
-  private countRecentCalls(model: string, now: number): number {
-    return (this.recentCalls[model] || []).filter(
-      (t) => now - t < ROLLING_WINDOW_MS
-    ).length;
-  }
-
-  private buildQuotaUpdate(
-    now: number,
-    modelForRpm?: string
-  ): SpectreQuotaUpdate {
-    const model = this.resolveQuotaModel(modelForRpm);
-    const rpmLimit = this.isFlashLite(model) ? RPM_FLASH_LITE : RPM_FLASH;
-    const rpmUsed = this.countRecentCalls(model, now);
-    return {
-      usedTokens: this.currentUsedTokens(),
-      capacity: TOKEN_CAPACITY_PER_MINUTE,
-      rpmUsed,
-      rpmLimit,
-      queued: this.queue.length,
-      nextAvailableMs: this.queue.length
-        ? this.computeNextAvailabilityMs()
-        : now,
-    };
   }
 
   private notifyQuotaUpdate(update: SpectreQuotaUpdate): void {
@@ -796,54 +633,12 @@ export class SpectreAiServiceImpl implements SpectreAiService {
     }
   }
 
-  private hasActiveTracking(): boolean {
-    return (
-      Object.values(this.tokenWindows).some((w) => w.length > 0) ||
-      Object.values(this.recentCalls).some((l) => l.length > 0)
-    );
-  }
-
-  private isAllTrackingEmpty(): boolean {
-    const afterRpm = Object.values(this.recentCalls).reduce(
-      (a, l) => a + l.length,
-      0
-    );
-    return (
-      Object.values(this.tokenWindows).every((w) => w.length === 0) &&
-      afterRpm === 0 &&
-      this.queue.length === 0
-    );
-  }
-
   private ensureDecayTicker(): void {
-    const need = this.hasActiveTracking();
+    const need = this.quota.hasActiveTracking();
 
     if (need && !this.decayTicker) {
       this.decayTicker = setInterval(() => {
-        const beforeTokens = this.currentUsedTokens();
-        const beforeRpm = Object.values(this.recentCalls).reduce(
-          (a, l) => a + l.length,
-          0
-        );
-
-        this.cleanWindows();
-
-        const afterTokens = this.currentUsedTokens();
-        const afterRpm = Object.values(this.recentCalls).reduce(
-          (a, l) => a + l.length,
-          0
-        );
-
-        if (beforeTokens !== afterTokens || beforeRpm !== afterRpm) {
-          this.pushQuotaUpdate();
-        }
-
-        if (this.isAllTrackingEmpty()) {
-          if (this.decayTicker) {
-            clearInterval(this.decayTicker);
-          }
-          this.decayTicker = undefined;
-        }
+        this.decayTick();
       }, 1000);
     } else if (!need && this.decayTicker) {
       clearInterval(this.decayTicker);
@@ -851,201 +646,27 @@ export class SpectreAiServiceImpl implements SpectreAiService {
     }
   }
 
-  private recordReservation(model: string, tokens: number): void {
-    if (!this.tokenWindows[model]) this.tokenWindows[model] = [];
-    this.tokenWindows[model].push({
-      time: Date.now(),
-      tokens,
-      reservation: true,
-    });
-    this.cleanWindows();
-  }
-  private adjustReservation(
-    model: string,
-    actual: number,
-    reservation: number
-  ): void {
-    const delta = actual - reservation;
-    if (delta) {
-      if (!this.tokenWindows[model]) this.tokenWindows[model] = [];
-      this.tokenWindows[model].push({
-        time: Date.now(),
-        tokens: delta,
-        reservation: false,
-      });
-      this.cleanWindows();
-    }
-  }
-  /**
-   * Records an RPM call with O(1) complexity using lazy cleanup.
-   * Only filters when threshold is significantly exceeded to amortize cost.
-   *
-   * Pattern: Deferred cleanup with periodic full cleanup.
-   */
-  private recordRpm(model: string): void {
-    const now = Date.now();
+  private decayTick(): void {
+    const beforeTokens = this.quota.currentUsedTokens();
+    const beforeRpm = this.quota.totalRecentCallsCount();
 
-    // Lazy initialization
-    if (!this.recentCalls[model]) this.recentCalls[model] = [];
-    if (!this.dailyCalls[model]) this.dailyCalls[model] = [];
+    this.quota.cleanWindows();
 
-    // Add new timestamp
-    this.recentCalls[model].push(now);
-    this.dailyCalls[model].push(now);
+    const afterTokens = this.quota.currentUsedTokens();
+    const afterRpm = this.quota.totalRecentCallsCount();
 
-    // Lazy cleanup: Only clean when arrays grow too large (amortized O(1))
-    // Clean at 2x threshold to avoid frequent filtering
-    const RPM_CLEANUP_THRESHOLD = 100; // Cleanup when exceeds 100 entries
-    const RPD_CLEANUP_THRESHOLD = 200; // Cleanup when exceeds 200 entries
-
-    if (this.recentCalls[model].length > RPM_CLEANUP_THRESHOLD) {
-      const rpmCutoff = now - ROLLING_WINDOW_MS;
-      this.recentCalls[model] = this.recentCalls[model].filter(
-        (t) => t >= rpmCutoff
-      );
+    if (beforeTokens !== afterTokens || beforeRpm !== afterRpm) {
+      this.pushQuotaUpdate();
     }
 
-    if (this.dailyCalls[model].length > RPD_CLEANUP_THRESHOLD) {
-      const pacificMidnight = getPacificMidnight();
-      this.dailyCalls[model] = this.dailyCalls[model].filter(
-        (t) => t >= pacificMidnight
-      );
-    }
-  }
-
-  /**
-   * Cleanup with cached filtered lists.
-   * Optimized to avoid unnecessary filtering:
-   * - Only cleans when arrays exceed threshold (30%+ expired entries)
-   * - Uses cached lists to avoid repeated O(n) filtering
-   * - Early exit if no cleanup needed
-   */
-  private shouldCleanWindow<T>(
-    window: T[],
-    cutoff: number,
-    predicate: (item: T) => boolean
-  ): boolean {
-    if (window.length === 0) return false;
-    const expiredCount = window.filter(predicate).length;
-    return expiredCount > window.length * 0.3;
-  }
-
-  private cleanWindows(): void {
-    const now = Date.now();
-    const rpmCutoff = now - ROLLING_WINDOW_MS;
-    const pacificMidnight = getPacificMidnight();
-
-    const didClean =
-      this.cleanTokenWindows(rpmCutoff) ||
-      this.cleanRecentCalls(rpmCutoff) ||
-      this.cleanDailyCalls(pacificMidnight);
-
-    if (didClean) {
-      this.rebuildCaches(rpmCutoff, pacificMidnight);
-    } else {
-      this.ensureCachesInitialized(rpmCutoff, pacificMidnight);
-    }
-  }
-
-  private cleanTokenWindows(rpmCutoff: number): boolean {
-    let changed = false;
-    for (const model in this.tokenWindows) {
-      const window = this.tokenWindows[model];
-      if (
-        !this.shouldCleanWindow(window, rpmCutoff, (e) => e.time < rpmCutoff)
-      ) {
-        continue;
-      }
-
-      this.tokenWindows[model] = window.filter(
-        (e: TokenUsage) => e.time >= rpmCutoff
-      );
-      changed = true;
-      if (this.tokenWindows[model].length === 0) {
-        delete this.tokenWindows[model];
-      }
-    }
-    return changed;
-  }
-
-  private cleanRecentCalls(rpmCutoff: number): boolean {
-    let changed = false;
-    for (const k in this.recentCalls) {
-      const list = this.recentCalls[k];
-      if (!this.shouldCleanWindow(list, rpmCutoff, (t) => t < rpmCutoff)) {
-        continue;
-      }
-
-      this.recentCalls[k] = list.filter((t) => t >= rpmCutoff);
-      changed = true;
-      if (this.recentCalls[k].length === 0) {
-        delete this.recentCalls[k];
-      }
-    }
-    return changed;
-  }
-
-  private cleanDailyCalls(pacificMidnight: number): boolean {
-    let changed = false;
-    for (const k in this.dailyCalls) {
-      const list = this.dailyCalls[k];
-      if (
-        !this.shouldCleanWindow(
-          list,
-          pacificMidnight,
-          (t) => t < pacificMidnight
-        )
-      ) {
-        continue;
-      }
-
-      this.dailyCalls[k] = list.filter((t) => t >= pacificMidnight);
-      changed = true;
-      if (this.dailyCalls[k].length === 0) {
-        delete this.dailyCalls[k];
-      }
-    }
-    return changed;
-  }
-
-  private rebuildCaches(rpmCutoff: number, pacificMidnight: number): void {
-    this.cachedRpmLists = Object.create(null);
-    this.cachedDailyLists = Object.create(null);
-
-    for (const k in this.recentCalls) {
-      this.cachedRpmLists[k] = this.recentCalls[k].filter(
-        (t) => t >= rpmCutoff
-      );
+    if (!this.quota.isAllTrackingEmpty(this.queue.length)) {
+      return;
     }
 
-    for (const k in this.dailyCalls) {
-      this.cachedDailyLists[k] = this.dailyCalls[k].filter(
-        (t) => t >= pacificMidnight
-      );
+    if (this.decayTicker) {
+      clearInterval(this.decayTicker);
     }
-  }
-
-  private ensureCachesInitialized(
-    rpmCutoff: number,
-    pacificMidnight: number
-  ): void {
-    this.initCache(this.cachedRpmLists, this.recentCalls, rpmCutoff);
-    this.initCache(
-      this.cachedDailyLists,
-      this.dailyCalls,
-      pacificMidnight
-    );
-  }
-
-  private initCache(
-    cache: Record<string, number[]>,
-    source: Record<string, number[]>,
-    cutoff: number
-  ): void {
-    if (Object.keys(cache).length > 0) return;
-    for (const k in source) {
-      cache[k] = source[k].filter((t) => t >= cutoff);
-    }
+    this.decayTicker = undefined;
   }
 
   // ============================================================================
@@ -1066,12 +687,11 @@ export class SpectreAiServiceImpl implements SpectreAiService {
       abortKey,
       enqueuedAt,
     } = p;
-    this.lastUsedModel = model; // Track last used model for quota display
     const controller = new AbortController();
     this.abortControllers.set(abortKey, controller);
 
-    this.recordReservation(model, reservationTokens);
-    this.recordRpm(model);
+    this.quota.recordReservation(model, reservationTokens);
+    this.quota.recordRpm(model);
     this.pushQuotaUpdate(model);
 
     const queuedMs = Date.now() - enqueuedAt;
@@ -1164,140 +784,217 @@ export class SpectreAiServiceImpl implements SpectreAiService {
     } = ctx;
     const { context, model = 'gemini-2.5-flash', prompt } = request;
 
-    // Calculate optimal temperature based on mode and model
     const isAgentMode = request.enableAgentMode === true;
-    const optimalTemperature = getOptimalTemperature(isAgentMode, model);
-
-    const genConfig: any = {
-      temperature: optimalTemperature, // Mode and model-specific temperature
-      topP: 0.95,
-      maxOutputTokens: clampOutputTokens(generationConfig?.maxOutputTokens),
-      ...generationConfig,
-    };
-    // Allow user override but validate range
-    if (
-      !(
-        typeof genConfig.temperature === 'number' &&
-        genConfig.temperature >= 0 &&
-        genConfig.temperature <= 2
-      )
-    ) {
-      genConfig.temperature = optimalTemperature;
-    }
-    if (
-      !(
-        typeof genConfig.topP === 'number' &&
-        genConfig.topP > 0 &&
-        genConfig.topP <= 1
-      )
-    )
-      genConfig.topP = 0.95;
-
-    // Thinking config ALWAYS applied (budget -1 dynamic) unless user explicitly provided a budget
-    let effectiveBudget =
-      typeof thinkingBudget === 'number'
-        ? thinkingBudget
-        : (generationConfig as any)?.thinking?.budgetTokens;
-    if (effectiveBudget === undefined) effectiveBudget = -1;
-    if (effectiveBudget !== 0) {
-      genConfig.thinkingConfig = { thinkingBudget: effectiveBudget };
-    }
+    const genConfig = buildStandardGenConfig({
+      model,
+      isAgentMode,
+      generationConfig,
+      thinkingBudget,
+      maxOutputTokensCap: QUOTA_CONFIG.maxOutputTokens,
+    });
 
     const userInput = buildPrompt(prompt);
     const sdk = await this.ensureSdk();
     const apiKey = await this.getApiKey();
     if (!apiKey) throw new Error('No Gemini API key configured.');
 
+    return this.attemptGenerationWithRetries({
+      sdk,
+      apiKey,
+      model,
+      userInput,
+      genConfig,
+      safetySettings,
+      controller,
+      abortKey,
+      context,
+      request,
+      reservationTokens,
+      includeThoughts,
+    });
+  }
+
+  /**
+   * Internal helper that runs the retry loop for standard generation attempts.
+   */
+  private async attemptGenerationWithRetries(params: GenerationRetryParams): Promise<SpectreAiResponse> {
+    const {
+      sdk,
+      apiKey,
+      model,
+      userInput,
+      genConfig,
+      safetySettings,
+      controller,
+      abortKey,
+      context,
+      request,
+      reservationTokens,
+      includeThoughts,
+    } = params;
+
     const maxRetries = 4; // Increased for service overload scenarios
-    let attempt = 0;
-    let triedNoThinking = false;
-    let triedNoGoogleSearch = false;
+    const state = new RetryState();
+
+    return this.runGenerationRetryLoop({
+      sdk,
+      apiKey,
+      model,
+      userInput,
+      genConfig,
+      safetySettings,
+      controller,
+      abortKey,
+      context,
+      request,
+      reservationTokens,
+      includeThoughts,
+      maxRetries,
+      state,
+    });
+  }
+
+  private async runGenerationRetryLoop(opts: RunGenerationRetryLoopParams): Promise<SpectreAiResponse> {
+    const {
+      sdk,
+      apiKey,
+      model,
+      userInput,
+      genConfig,
+      safetySettings,
+      controller,
+      abortKey,
+      context,
+      request,
+      reservationTokens,
+      includeThoughts,
+      maxRetries,
+      state,
+    } = opts;
 
     while (true) {
-      await this.pacing(model, abortKey);
-      // Record timing AFTER pacing completes to prevent artificial delays on subsequent requests
-      this.lastCallAt[model] = Date.now();
       try {
-        const res = await this.streamingCall({
+        return await this.performGenerationAttempt({
           sdk,
           apiKey,
-          endpointModel: model,
+          model,
           userInput,
           genConfig,
           safetySettings,
           controller,
-          key: abortKey,
+          abortKey,
           context,
           request,
-          disableGoogleSearch: triedNoGoogleSearch,
+          reservationTokens,
+          includeThoughts,
+          disableGoogleSearch: state.triedNoGoogleSearch,
         });
-        if (
-          includeThoughts &&
-          res.meta &&
-          res.meta.thoughtsTokens &&
-          !res.meta.thoughtSummary
-        ) {
-          res.meta.thoughtSummary =
-            'Thinking process applied (summary unavailable).';
-        }
-        this.afterResponse(model, reservationTokens, res);
-        return res;
       } catch (err: any) {
         if (controller.signal.aborted) throw new Error('Generation canceled.');
         const msg = err?.message || String(err);
+        this.logStandardGenerationFailure({ attempt: state.attempt, msg, err });
 
-        // Log the actual error for debugging
-        spectreError(
-          `[Spectre AI] Generation attempt ${attempt + 1} failed:`,
-          msg
-        );
-        spectreError(`[Spectre AI] Error details:`, sanitizeForLogging(err));
+        const decision = decideStandardGenerationRetry({
+          err,
+          msg,
+          attempt: state.attempt,
+          maxRetries,
+          triedNoThinking: state.triedNoThinking,
+          triedNoGoogleSearch: state.triedNoGoogleSearch,
+        });
 
-        // Retry once without thinkingConfig if API rejects it
-        if (!triedNoThinking && /Unknown name "thinkingConfig"/i.test(msg)) {
-          delete genConfig.thinkingConfig;
-          triedNoThinking = true;
-          continue;
-        }
-
-        // Retry once without Google Search if API rejects it
-        if (
-          !triedNoGoogleSearch &&
-          /Unknown|google_search|googleSearch|tool/i.test(msg)
-        ) {
-          triedNoGoogleSearch = true;
-          continue;
-        }
-
-        const { category, retryable, message } = classifyError(err);
-        if (category === 'auth')
-          throw new Error('Gemini authentication failed. Check API key.');
-        if (category === 'quota') throw new Error('Remote quota exhausted.');
-        if (retryable && attempt < maxRetries) {
-          // Longer backoff for service overload (503) and stream parsing errors
-          const isServiceIssue =
-            /overloaded|503|Failed to parse stream|Error fetching/i.test(
-              message
-            );
-          const baseDelay = isServiceIssue
-            ? TIMING_CONSTANTS.SERVICE_OVERLOAD_BASE_DELAY
-            : TIMING_CONSTANTS.NETWORK_RETRY_BASE_DELAY;
-          const backoff = baseDelay * Math.pow(2, attempt);
-
-          this.client?.onStream({
-            key: abortKey,
-            delta: `${
-              isServiceIssue ? 'Service overloaded' : 'Network error'
-            } - retrying in ${(backoff / 1000).toFixed(1)}s...\n`,
-          });
-          await delay(backoff);
-          attempt++;
-          continue;
-        }
-        throw new Error(`Gemini request failed: ${message}`);
+        await this.processRetryDecision({ decision, genConfig, state, abortKey });
       }
     }
   }
+
+  private async performGenerationAttempt(ctx: GenerationAttemptContext): Promise<SpectreAiResponse> {
+    const {
+      sdk,
+      apiKey,
+      model,
+      userInput,
+      genConfig,
+      safetySettings,
+      controller,
+      abortKey,
+      context,
+      request,
+      reservationTokens,
+      includeThoughts,
+      disableGoogleSearch,
+    } = ctx;
+
+    const res = await this.tryStreamingAttempt({
+      sdk,
+      apiKey,
+      endpointModel: model,
+      userInput,
+      genConfig,
+      safetySettings,
+      controller,
+      key: abortKey,
+      context,
+      request,
+      disableGoogleSearch: !!disableGoogleSearch,
+    });
+
+    applyThoughtSummary(res, includeThoughts);
+    this.afterResponse({ model, reservationTokens, res });
+    return res;
+  }
+
+  /**
+   * Performs a single streaming attempt: pacing, record last-call timestamp, then call streamingCall.
+   */
+  private async tryStreamingAttempt(
+    ctx: StreamingCallContext
+  ): Promise<SpectreAiResponse> {
+    const model = ctx.endpointModel;
+    const key = ctx.key;
+    await this.pacing({ model, key });
+    // Record timing AFTER pacing completes to prevent artificial delays on subsequent requests
+    this.lastCallAt[model] = Date.now();
+    return this.streamingCall(ctx);
+  }
+
+  /**
+   * Handles retry decision actions returned by decideStandardGenerationRetry.
+   * Mutates genConfig/state as needed and performs appropriate backoff/wait.
+   */
+  private async processRetryDecision(params: ProcessRetryActionParams): Promise<void> {
+    const { decision, genConfig, state, abortKey } = params;
+
+    if (decision.action === 'retry-no-thinking') {
+      delete genConfig.thinkingConfig;
+      state.markNoThinking();
+      return;
+    }
+
+    if (decision.action === 'retry-no-google-search') {
+      state.markNoGoogleSearch();
+      return;
+    }
+
+    if (decision.action === 'retry') {
+      this.client?.onStream({ key: abortKey, delta: decision.delta });
+      await delay(decision.backoffMs);
+      state.increment();
+      return;
+    }
+
+    throw new Error(decision.message);
+  }
+
+  private logStandardGenerationFailure(params: LogFailureParams): void {
+    const { attempt, msg, err } = params;
+    spectreError(
+      `[Spectre AI] Generation attempt ${attempt + 1} failed:`,
+      msg
+    );
+    spectreError(`[Spectre AI] Error details:`, sanitizeForLogging(err));
+  }
+
 
   /**
    * Wait briefly for the frontend RPC client to be registered to avoid a race
@@ -1312,16 +1009,13 @@ export class SpectreAiServiceImpl implements SpectreAiService {
     }
   }
 
-  private afterResponse(
-    model: string,
-    reservationTokens: number,
-    res: SpectreAiResponse
-  ): void {
+  private afterResponse(params: AfterResponseParams): void {
+    const { model, reservationTokens, res } = params;
     // IMPORTANT: Only INPUT tokens (promptTokens) count toward TPM quota!
     // Output tokens (candidatesTokens) do NOT count per Gemini API rules.
     const actual = res.meta?.promptTokens || 0;
     if (actual > 0) {
-      this.adjustReservation(model, actual, reservationTokens);
+      this.quota.adjustReservation(model, actual, reservationTokens);
       if (res.meta) res.meta.usedReservation = reservationTokens;
     }
     // NOTE: lastCallAt is set in execute() after pacing completes, not here at response END
@@ -1435,213 +1129,104 @@ export class SpectreAiServiceImpl implements SpectreAiService {
       request,
       disableGoogleSearch,
     } = ctx;
+
     const { thinkingConfig, ...restGen } = genConfig;
-    const { GoogleGenAI } = sdk;
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = this.createAiClient({ sdk, apiKey });
 
-    // Configure Google Search grounding if enabled and not disabled by retry logic
-    // CRITICAL: Google Search and Function Calling are MUTUALLY EXCLUSIVE
-    // Use camelCase format as per new SDK documentation
-    const tools: any[] = [];
-
-    // Add function calling tools if agent mode is enabled (takes priority)
-    if (request?.enableAgentMode === true && request.functionDeclarations) {
-      // Convert our FunctionDeclaration format to Gemini's format
-      const functionDeclarations = request.functionDeclarations.map((fn) => ({
-        name: fn.name,
-        description: fn.description,
-        parameters: fn.parameters,
-      }));
-
-      tools.push({
-        functionDeclarations,
-      });
-    } else if (!disableGoogleSearch && request?.enableGoogleSearch !== false) {
-      // Only enable Google Search if function calling is NOT active
-      tools.push({
-        googleSearch: {}, // New SDK uses camelCase
-      });
-    }
-
-    // Build conversation contents for proper memory like GitHub Copilot
-    const rawContents: any[] = [];
-
-    // Add conversation history if available
-    if (context?.conversation && context.conversation.length > 0) {
-      for (const msg of context.conversation) {
-        if ('text' in msg) {
-          // Regular user/model message with text
-          rawContents.push({
-            role: msg.role,
-            parts: [{ text: msg.text }],
-          });
-        } else if ('parts' in msg) {
-          // Function response - pass through as-is
-          rawContents.push({
-            role: msg.role,
-            parts: msg.parts,
-          });
-        }
-      }
-    }
-
-    // Add the current user message
-    if (userInput && userInput.trim().length > 0) {
-      rawContents.push({
-        role: 'user',
-        parts: [{ text: userInput }],
-      });
-    }
-
-    // Normalize contents to ensure alternating roles (User -> Model -> User)
-    // Gemini API throws errors if roles do not alternate strictly.
-    const contents: any[] = [];
-    for (const msg of rawContents) {
-      // Skip leading model/function messages - Conversation MUST start with User
-      if (contents.length === 0 && msg.role !== 'user') {
-        continue;
-      }
-
-      if (contents.length === 0) {
-        contents.push(msg);
-        continue;
-      }
-
-      const last = contents[contents.length - 1];
-      if (last.role === msg.role) {
-        // Merge with previous message of same role
-        last.parts = [...last.parts, ...msg.parts];
-      } else {
-        contents.push(msg);
-      }
-    }
-
-    // Use mode-specific system instruction based on whether agent mode is enabled
+    const tools = buildStreamingTools(request, disableGoogleSearch);
+    const contents = buildConversationContents(context, userInput);
     const systemInstruction =
       request?.enableAgentMode === true
         ? AGENT_MODE_INSTRUCTION
         : BASIC_MODE_INSTRUCTION;
 
-    // New SDK API: ai.models.generateContentStream() instead of getGenerativeModel()
-    const response = await ai.models.generateContentStream({
-      model: endpointModel,
-      contents: contents,
-      config: {
-        systemInstruction: systemInstruction,
-        ...restGen,
-        safetySettings: safetySettings as any,
-        ...(thinkingConfig ? { thinkingConfig } : {}),
-        ...(tools.length > 0 ? { tools } : {}),
-        abortSignal: controller.signal,
-      },
+    const response = await this.performGenerateContentStream({
+      ai,
+      endpointModel,
+      contents,
+      systemInstruction,
+      restGen,
+      thinkingConfig,
+      tools,
+      safetySettings,
+      controller,
     });
 
-    let full = '';
-    let lastChunk: any;
-    let hasFunctionCalls = false;
+    return this.consumeResponseStream(response, controller, key, endpointModel);
+  }
 
-    // Track last chunk time for inactivity timeout
+  // Helper: create AI client instance
+  private createAiClient(params: { sdk: GoogleGenAIType; apiKey: string }) {
+    const { sdk, apiKey } = params;
+    const { GoogleGenAI } = sdk;
+    return new GoogleGenAI({ apiKey });
+  }
+
+  // Helper: wrap ai.models.generateContentStream call and build config
+  private async performGenerateContentStream(params: GenerateContentStreamParams) {
+    const {
+      ai,
+      endpointModel,
+      contents,
+      systemInstruction,
+      restGen,
+      thinkingConfig,
+      tools,
+      safetySettings,
+      controller,
+    } = params;
+
+    const config: any = {
+      systemInstruction,
+      ...restGen,
+      safetySettings: safetySettings as any,
+      ...(thinkingConfig ? { thinkingConfig } : {}),
+      ...(tools.length > 0 ? { tools } : {}),
+      abortSignal: controller.signal,
+    };
+
+    return ai.models.generateContentStream({
+      model: endpointModel,
+      contents,
+      config,
+    });
+  }
+
+  // Helper: consume stream, enforce inactivity and validate content
+  private async consumeResponseStream(
+    response: any,
+    controller: AbortController,
+    key: string,
+    endpointModel: string
+  ): Promise<SpectreAiResponse> {
     let lastChunkTime = Date.now();
-
-    // Set up inactivity monitoring
-    const inactivityTimerHandle = setInterval(() => {
-      const inactiveMs = Date.now() - lastChunkTime;
-      if (inactiveMs > TIMING_CONSTANTS.STREAM_INACTIVITY_TIMEOUT) {
-        spectreWarn(
-          `[Spectre AI] Stream inactive for ${inactiveMs}ms, aborting request`
-        );
-        controller.abort();
-        clearInterval(inactivityTimerHandle);
-      }
-    }, 5000); // Check every 5 seconds
+    const stopInactivity = startStreamInactivityMonitor(
+      controller,
+      key,
+      () => lastChunkTime
+    );
 
     try {
-      // Stream chunks - new SDK returns AsyncIterable directly
-      for await (const chunk of response) {
-        if (controller.signal.aborted) break;
-        lastChunk = chunk;
-        lastChunkTime = Date.now(); // Update activity timestamp
-
-        // Check if chunk has function calls (agent mode)
-        const parts = chunk.candidates?.[0]?.content?.parts || [];
-        for (const part of parts) {
-          if (part.functionCall) {
-            hasFunctionCalls = true;
-            break;
-          }
-        }
-
-        // Only try to get text if there are no function calls
-        // When function calls are present, chunk.text will log warnings
-        if (!hasFunctionCalls) {
-          const delta = chunk.text || '';
-          if (delta) {
-            full += delta;
-            this.client?.onStream({ key, delta });
-          }
-        } else {
-          // For function calling responses, extract only actual text parts
-          for (const part of parts) {
-            if (part.text) {
-              full += part.text;
-              this.client?.onStream({ key, delta: part.text });
-            }
-          }
-        }
-      }
+      const { full, lastChunk, hasFunctionCalls } = await consumeStream({
+        response,
+        controller,
+        onChunk: () => {
+          lastChunkTime = Date.now();
+        },
+        onDelta: (delta) => {
+          this.client?.onStream({ key, delta });
+        },
+      });
 
       if (controller.signal.aborted) throw new Error('canceled');
-
-      // In agent mode, empty text is OK if we have function calls
       if (!full && !hasFunctionCalls) {
         throw new Error('Gemini API returned no content.');
       }
 
       this.client?.onStream({ key, done: true });
-
-      // Extract metadata from last chunk
-      const candidate = lastChunk?.candidates?.[0];
-      const usage = lastChunk?.usageMetadata;
-      const finishReason = candidate?.finishReason;
-      const thinkingTokens =
-        (usage as any)?.thinkingTokenCount || (usage as any)?.thinkingTokens;
-
-      // Check for grounding metadata
-      const groundingMetadata = candidate?.groundingMetadata;
-
-      // Extract function calls if present (agent mode)
-      const functionCalls: FunctionCall[] = [];
-      const parts = candidate?.content?.parts || [];
-      for (const part of parts) {
-        if (part.functionCall) {
-          functionCalls.push({
-            name: part.functionCall.name,
-            args: part.functionCall.args || {},
-          });
-        }
-      }
-
-      return {
-        text: full,
-        functionCalls: functionCalls.length > 0 ? functionCalls : undefined,
-        parts: parts, // Include full content parts (thoughts, etc.) for Gemini 3 history compliance
-        requiresAction: functionCalls.length > 0,
-        meta: {
-          model: endpointModel,
-          promptTokens: usage?.promptTokenCount,
-          candidatesTokens: usage?.candidatesTokenCount,
-          totalTokens: usage?.totalTokenCount,
-          finishReason,
-          thoughtsTokens: thinkingTokens,
-          usage,
-          groundingMetadata, // Include grounding metadata in response
-        },
-      };
+      return buildStreamingResponse(endpointModel, full, lastChunk);
     } finally {
-      // Always clear inactivity timer
-      if (inactivityTimerHandle) {
-        clearInterval(inactivityTimerHandle);
-      }
+      stopInactivity();
     }
   }
 
@@ -1653,11 +1238,12 @@ export class SpectreAiServiceImpl implements SpectreAiService {
    * Enforces minimum spacing between requests to avoid burst rate limiting.
    * Notifies frontend client of pacing delay via streaming.
    */
-  private async pacing(model: string, key: string) {
+  private async pacing(params: PacingParams) {
+    const { model, key } = params;
     const last = this.lastCallAt[model] || 0;
     const minSpacing = this.isFlashLite(model)
-      ? MIN_SPACING_MS_FLASH_LITE
-      : MIN_SPACING_MS_FLASH;
+      ? QUOTA_CONFIG.minSpacingMsFlashLite
+      : QUOTA_CONFIG.minSpacingMsFlash;
     const since = Date.now() - last;
     if (since < minSpacing) {
       const wait = minSpacing - since;
@@ -1676,292 +1262,4 @@ export class SpectreAiServiceImpl implements SpectreAiService {
   private async getApiKey(): Promise<string | undefined> {
     return this.secretsService.getApiKey();
   }
-}
-
-// ==============================================================================
-// Utility Functions
-// ==============================================================================
-
-/**
- * Maps user-provided model name to valid Gemini endpoint.
- * Defaults to gemini-2.5-flash for unknown models.
- */
-function mapModel(model: string): string {
-  return ['gemini-2.5-flash', 'gemini-2.5-flash-lite'].includes(model)
-    ? model
-    : 'gemini-2.5-flash';
-}
-
-/**
- * Builds final prompt with reasoning instruction.
- * Encourages step-by-step thinking for better quality responses.
- */
-function buildPrompt(userPrompt: string): string {
-  return `Think step by step, then answer clearly.\n\n${userPrompt}`;
-}
-
-/**
- * Estimates token count using improved heuristics for different content types.
- *
- * Much more accurate than naive char/4 approach:
- * - Natural language: ~4-5 chars per token (~1.3 tokens per word)
- * - Code: ~3.5 chars per token (more dense, lots of operators)
- * - JSON: ~3 chars per token (very dense, structural overhead)
- * - Adds overhead for special tokens and message formatting
- *
- * Still not perfect (only a real tokenizer is), but reduces estimation error
- * from 30-50% down to 10-15%.
- */
-function estimateTokens(text: string): number {
-  const clean = (text || '').trim();
-  if (!clean) return 4;
-
-  const len = clean.length;
-
-  // Detect content type via pattern matching
-  const hasCodeBlock = /```/.test(clean);
-  const hasCode =
-    hasCodeBlock ||
-    /(?:function|class|const|let|var|return|if|for|while)\s*[\(\{]/.test(clean);
-  const hasJson =
-    /^\s*[\{\[]/.test(clean) || (clean.includes('":') && clean.includes('{'));
-
-  let baseTokens = 0;
-
-  if (hasJson) {
-    // JSON is very dense: lots of punctuation, quotes, braces
-    // Estimate: ~3 chars per token
-    baseTokens = Math.ceil(len / 3);
-  } else if (hasCode) {
-    // Code is dense: short identifiers, operators, syntax chars
-    // Estimate: ~3.5 chars per token
-    baseTokens = Math.ceil(len / 3.5);
-  } else {
-    // Natural language: ~4-5 chars per token, or ~1.3 tokens per word
-    // Use word-based estimation for better accuracy
-    const words = clean.split(/\s+/).length;
-    baseTokens = Math.ceil(words * 1.3);
-
-    // Sanity check against char-based estimation
-    const charBasedTokens = Math.ceil(len / 4.5);
-    baseTokens = Math.max(baseTokens, charBasedTokens);
-  }
-
-  // Add overhead for message formatting tokens
-  // (role markers, separators, special tokens like <|im_start|>, etc.)
-  const overhead = 5;
-
-  return Math.max(4, baseTokens + overhead);
-}
-
-function estimateTotalInputTokens(request: SpectreAiRequest): number {
-  let promptEstimate = 0;
-
-  // 1. System instruction tokens (always included) - use mode-specific instruction
-  const systemInstruction =
-    request.enableAgentMode === true
-      ? AGENT_MODE_INSTRUCTION
-      : BASIC_MODE_INSTRUCTION;
-  promptEstimate += estimateTokens(systemInstruction);
-
-  // 2. Conversation history tokens (if present)
-  if (
-    request.context?.conversation &&
-    request.context.conversation.length > 0
-  ) {
-    for (const msg of request.context.conversation) {
-      if ('text' in msg) {
-        promptEstimate += estimateTokens(msg.text);
-      } else if ('parts' in msg) {
-        // Function response - estimate JSON size
-        promptEstimate += estimateTokens(JSON.stringify(msg.parts));
-      }
-    }
-  }
-
-  // 3. Current user message tokens
-  promptEstimate += estimateTokens(request.prompt);
-
-  return promptEstimate;
-}
-
-/**
- * Clamps output token limit to valid range.
- * Ensures requests stay within Gemini API constraints (max 65,536 tokens).
- * Defaults to 16,384 tokens for balanced response length and quota usage.
- */
-function clampOutputTokens(requested: number | undefined): number {
-  let val = typeof requested === 'number' && requested > 0 ? requested : 16384;
-  val = Math.min(val, MAX_OUTPUT_TOKENS);
-  return val;
-}
-
-/**
- * Delays execution for specified milliseconds.
- * Used for retry backoff and pacing.
- */
-function delay(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-/**
- * Gets the timestamp for the start of today in Pacific Time.
- * Used for daily quota (RPD) tracking that resets at midnight PT.
- */
-function getPacificMidnight(): number {
-  const now = new Date();
-  // Convert to Pacific Time (UTC-8 or UTC-7 during DST)
-  const pacificTime = new Date(
-    now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-  );
-  pacificTime.setHours(0, 0, 0, 0);
-  return pacificTime.getTime();
-}
-
-/**
- * Classifies API errors for retry logic and user messaging.
- * Handles authentication, rate limits, service overload, and network errors.
- */
-function isServerError(status: any): boolean {
-  return typeof status === 'number' && status >= 500 && status < 600;
-}
-
-function isAuthError(status: any, message: string): boolean {
-  return (
-    status === 401 ||
-    /UNAUTHENTICATED|permission|unauthorized|API key/i.test(message)
-  );
-}
-
-function isRateError(status: any, message: string): boolean {
-  return status === 429 || /rate|RESOURCE_EXHAUSTED/i.test(message);
-}
-
-function isQuotaError(message: string): boolean {
-  return /quota/i.test(message) && /exceed|exhaust/i.test(message);
-}
-
-function getErrorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-function getErrorStatus(err: any): number | string | undefined {
-  return (err && (err.status || err.code || err.statusCode)) as
-    | number
-    | string
-    | undefined;
-}
-
-type ClassifiedError = {
-  retryable: boolean;
-  category: 'auth' | 'rate' | 'quota' | 'canceled' | 'other';
-  message: string;
-};
-
-function classifyError(err: any): ClassifiedError {
-  const message = getErrorMessage(err);
-  const status = getErrorStatus(err);
-
-  const rules: Array<{ when: () => boolean; result: ClassifiedError }> = [
-    {
-      when: () => /abort/i.test(message),
-      result: { retryable: false, category: 'canceled', message },
-    },
-    {
-      when: () => isAuthError(status, message),
-      result: { retryable: false, category: 'auth', message },
-    },
-    {
-      when: () => isQuotaError(message),
-      result: { retryable: false, category: 'quota', message },
-    },
-    {
-      when: () => isRateError(status, message),
-      result: { retryable: true, category: 'rate', message },
-    },
-    // Gemini-specific error handling
-    {
-      when: () => /overloaded|503|Service Unavailable/i.test(message),
-      result: {
-        retryable: true,
-        category: 'other',
-        message: 'Gemini API overloaded - retrying...',
-      },
-    },
-    {
-      when: () => /Failed to parse stream|parse.*stream/i.test(message),
-      result: {
-        retryable: true,
-        category: 'other',
-        message: 'Network stream error - retrying...',
-      },
-    },
-    {
-      when: () => /Error fetching/i.test(message),
-      result: {
-        retryable: true,
-        category: 'other',
-        message: 'Network connection error - retrying...',
-      },
-    },
-    {
-      when: () => isServerError(status),
-      result: { retryable: true, category: 'other', message },
-    },
-  ];
-
-  for (const rule of rules) {
-    if (rule.when()) {
-      return rule.result;
-    }
-  }
-
-  return { retryable: false, category: 'other', message };
-}
-
-function redactString(value: string): string {
-  // Common Google API key prefix is AIza; redact anything that looks like a key.
-  return value.replace(/AIza[0-9A-Za-z_\-]{20,}/g, '[REDACTED_API_KEY]');
-}
-
-function isSensitiveKey(key: string): boolean {
-  const k = key.toLowerCase();
-  return (
-    k === 'apikey' ||
-    k === 'api_key' ||
-    k === 'authorization' ||
-    k === 'x-goog-api-key' ||
-    k.includes('token') ||
-    k.includes('secret')
-  );
-}
-
-function sanitizeValue(value: any, seen: WeakSet<object>): any {
-  if (typeof value === 'string') return redactString(value);
-  if (typeof value !== 'object' || value === null) return value;
-  if (seen.has(value)) return '[Circular]';
-
-  seen.add(value);
-
-  if (value instanceof Error) {
-    return {
-      name: value.name,
-      message: redactString(value.message || ''),
-      stack: value.stack ? redactString(value.stack) : undefined,
-    };
-  }
-
-  if (Array.isArray(value)) {
-    return value.slice(0, 50).map((v) => sanitizeValue(v, seen));
-  }
-
-  const out: Record<string, any> = {};
-  for (const [k, v] of Object.entries(value)) {
-    out[k] = isSensitiveKey(k) ? '[REDACTED]' : sanitizeValue(v, seen);
-  }
-  return out;
-}
-
-function sanitizeForLogging(input: unknown): unknown {
-  return sanitizeValue(input, new WeakSet<object>());
 }

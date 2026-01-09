@@ -202,7 +202,7 @@ export async function agentModifySketch(
         return '❌ Could not open file in editor - please ensure the sketch is open and try pasting the code manually';
       }
 
-      return await applyEditorChanges(ctx, editor, uri, filePath, content);
+      return await applyEditorChanges(ctx, { editor, uri, filePath, content });
     }
   );
 }
@@ -223,14 +223,16 @@ async function openEditorWithRetry(
 
 async function applyEditorChanges(
   ctx: SketchToolsContext,
-  editor: EditorWidget,
-  uri: URI,
-  filePath: string,
-  content: string
+  opts: {
+    editor: EditorWidget;
+    uri: URI;
+    filePath: string;
+    content: string;
+  }
 ): Promise<string> {
   await ctx.delay(ctx.timing.PORT_SELECTION_DELAY);
 
-  const monacoEditor = editor.editor;
+  const monacoEditor = opts.editor.editor;
 
   if (!monacoEditor.getControl) {
     return '❌ Could not access Monaco editor model - editor may not be fully loaded';
@@ -248,12 +250,12 @@ async function applyEditorChanges(
 
   const oldCode = model.getValue();
 
-  if (oldCode !== content) {
-    await ctx.showInlineDiff(uri, filePath, oldCode, content);
-    return `✅ Applied changes to: ${filePath}\n\n💡 Click "Keep" to accept or "Undo" to revert`;
+  if (oldCode !== opts.content) {
+    await ctx.showInlineDiff(opts.uri, opts.filePath, oldCode, opts.content);
+    return `✅ Applied changes to: ${opts.filePath}\n\n💡 Click "Keep" to accept or "Undo" to revert`;
   }
 
-  return `✅ Code is already up to date: ${filePath}`;
+  return `✅ Code is already up to date: ${opts.filePath}`;
 }
 
 // ============================================================================

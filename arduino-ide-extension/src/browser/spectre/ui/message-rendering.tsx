@@ -26,7 +26,13 @@ export function setReactMarkdownLazy(component: any): void {
 /**
  * Renders text content with markdown.
  */
-function renderMarkdownText(text: string, key: string): React.ReactNode {
+function renderMarkdownText({
+  text,
+  key,
+}: {
+  text: string;
+  key: string;
+}): React.ReactNode {
   return (
     <div key={key} style={{ marginBottom: '8px' }}>
       {ReactMarkdownLazy ? (
@@ -67,7 +73,9 @@ export function processExplicitCodeBlocks(
 
     // Add text before code block
     if (beforeCode.trim()) {
-      parts.push(renderMarkdownText(beforeCode, `text-${blockIndex}`));
+      parts.push(
+        renderMarkdownText({ text: beforeCode, key: `text-${blockIndex}` })
+      );
     }
 
     // Add code block
@@ -133,59 +141,65 @@ export function renderInlineCodeBlocks(
 }
 
 /**
+ * Mapping of function names to icons.
+ */
+const ICON_BY_FUNCTION: Record<string, string> = {
+  create_sketch: '📝',
+  read_sketch: '📖',
+  verify_sketch: '🔍',
+  upload_sketch: '⬆️',
+  install_library: '📦',
+  uninstall_library: '🗑️',
+  search_boards: '🔎',
+  install_board: '💾',
+  uninstall_board: '🗑️',
+  select_board: '🎯',
+  get_boards: '📋',
+  select_port: '🔌',
+  get_ports: '🔌',
+  add_board_url: '🌐',
+  remove_board_url: '🗑️',
+  fetch_board_urls: '🔍',
+  get_board_config: '⚙️',
+  set_board_config: '⚙️',
+};
+
+/**
  * Gets icon for a function name.
  */
 export function getFunctionIcon(functionName: string): string {
-  const iconByFunction: Record<string, string> = {
-    create_sketch: '📝',
-    read_sketch: '📖',
-    verify_sketch: '🔍',
-    upload_sketch: '⬆️',
-    install_library: '📦',
-    uninstall_library: '🗑️',
-    search_boards: '🔎',
-    install_board: '💾',
-    uninstall_board: '🗑️',
-    select_board: '🎯',
-    get_boards: '📋',
-    select_port: '🔌',
-    get_ports: '🔌',
-    add_board_url: '🌐',
-    remove_board_url: '🗑️',
-    fetch_board_urls: '🔍',
-    get_board_config: '⚙️',
-    set_board_config: '⚙️',
-  };
-
-  return iconByFunction[functionName] ?? '⚡';
+  return ICON_BY_FUNCTION[functionName] ?? '⚡';
 }
+
+/**
+ * Mapping of function names to human-readable labels.
+ */
+const LABEL_BY_FUNCTION: Record<string, string> = {
+  create_sketch: 'Creating sketch',
+  read_sketch: 'Reading sketch',
+  verify_sketch: 'Verifying sketch',
+  upload_sketch: 'Uploading sketch',
+  install_library: 'Installing library',
+  uninstall_library: 'Uninstalling library',
+  search_boards: 'Searching boards',
+  install_board: 'Installing board',
+  uninstall_board: 'Uninstalling board',
+  select_board: 'Selecting board',
+  get_boards: 'Getting boards list',
+  select_port: 'Selecting port',
+  get_ports: 'Getting ports list',
+  add_board_url: 'Adding board URL',
+  remove_board_url: 'Removing board URL',
+  fetch_board_urls: 'Fetching board URLs',
+  get_board_config: 'Getting board configuration',
+  set_board_config: 'Setting board configuration',
+};
 
 /**
  * Gets label for a function name.
  */
 export function getFunctionLabel(functionName: string): string {
-  const labelByFunction: Record<string, string> = {
-    create_sketch: 'Creating sketch',
-    read_sketch: 'Reading sketch',
-    verify_sketch: 'Verifying sketch',
-    upload_sketch: 'Uploading sketch',
-    install_library: 'Installing library',
-    uninstall_library: 'Uninstalling library',
-    search_boards: 'Searching boards',
-    install_board: 'Installing board',
-    uninstall_board: 'Uninstalling board',
-    select_board: 'Selecting board',
-    get_boards: 'Getting boards list',
-    select_port: 'Selecting port',
-    get_ports: 'Getting ports list',
-    add_board_url: 'Adding board URL',
-    remove_board_url: 'Removing board URL',
-    fetch_board_urls: 'Fetching board URLs',
-    get_board_config: 'Getting board configuration',
-    set_board_config: 'Setting board configuration',
-  };
-
-  return labelByFunction[functionName] ?? functionName.replace(/_/g, ' ');
+  return LABEL_BY_FUNCTION[functionName] ?? functionName.replace(/_/g, ' ');
 }
 
 /**

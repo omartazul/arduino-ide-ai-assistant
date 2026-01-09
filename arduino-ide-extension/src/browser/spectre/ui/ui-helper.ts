@@ -7,14 +7,104 @@
  */
 
 import { extractExplicitCodeBlocks as extractFencedBlocks } from './ui-utilities';
+import type { CodeBlock as UtilCodeBlock } from './ui-utilities';
 
 /**
- * Code block type with metadata.
+ * Code block type with metadata (imported from ui-utilities).
  */
-interface CodeBlock {
-  code: string;
-  type: 'block' | 'inline';
-  language?: string;
+export enum Language {
+  Cpp = 'cpp',
+  C = 'c',
+  JavaScript = 'javascript',
+  Python = 'python',
+  Text = 'text',
+  Arduino = 'arduino',
+}
+type Lines = string[];
+
+/* Use the CodeBlock type exported by ui-utilities to avoid mismatched language typing. */
+type CodeBlock = UtilCodeBlock;
+
+/**
+ * Strongly-typed shapes to avoid primitive obsession and string-heavy args.
+ */
+interface Decoration {
+  range: {
+    startLineNumber: number;
+    startColumn: number;
+    endLineNumber: number;
+    endColumn: number;
+  };
+  options: {
+    isWholeLine: boolean;
+    className: string;
+    glyphMarginClassName: string;
+  };
+}
+
+interface ContentWidget {
+  lineNumber: number;
+  text: string;
+}
+
+interface CodeSectionParams {
+  line: string;
+  trimmed: string;
+  inCodeSection: boolean;
+  isCode: boolean;
+  isExplanation: boolean;
+  codeStarted: boolean;
+}
+
+interface CodeSectionResult {
+  add: boolean;
+  continueSection: boolean;
+}
+
+interface FindLineMatchParams {
+  oldLines: Lines;
+  newLines: Lines;
+  oldIdx: number;
+  newIdx: number;
+  decorations: Decoration[];
+  contentWidgets: ContentWidget[];
+}
+
+interface FindLineMatchResult {
+  oldIdx: number;
+  newIdx: number;
+}
+
+interface DeletionParams {
+  oldLines: Lines;
+  newLines: Lines;
+  oldIdx: number;
+  newIdx: number;
+  contentWidgets: ContentWidget[];
+}
+
+interface AdditionParams {
+  oldLines: Lines;
+  newLines: Lines;
+  oldIdx: number;
+  newIdx: number;
+  decorations: Decoration[];
+}
+
+interface ReplacementParams {
+  oldLines: Lines;
+  newLines: Lines;
+  oldIdx: number;
+  newIdx: number;
+  decorations: Decoration[];
+  contentWidgets: ContentWidget[];
+}
+
+interface LookaheadParams {
+  currentLine: string;
+  searchLines: Lines;
+  searchStartIdx: number;
+  maxLookahead: number;
 }
 
 /**
@@ -23,8 +113,11 @@ interface CodeBlock {
 export class UIHelper {
   /**
    * Detects if text contains Arduino code patterns.
+   *
+   * Accepts a single object parameter to avoid primitive-obsession (prefer { text }).
    */
-  static containsArduinoCode(text: string): boolean {
+  static containsArduinoCode(params: { text: string }): boolean {
+    const text = params?.text ?? '';
     const lines = text.split('\n');
     let codeLines = 0;
 
@@ -78,8 +171,11 @@ export class UIHelper {
 
   /**
    * Checks if a line is a strong code indicator.
+   *
+   * Accepts a single object parameter { line } to avoid primitive-obsession.
    */
-  static isCodeLine(line: string): boolean {
+  static isCodeLine(params: { line: string }): boolean {
+    const line = params?.line ?? '';
     const codeIndicators = [
       /^\s*(void|int|float|char|boolean|String)\s+\w+/,
       /^\s*#include\s+[<"]/,
@@ -99,14 +195,7 @@ export class UIHelper {
   /**
    * Checks if line should be added to code section.
    */
-  static shouldAddToCodeSection(params: {
-    line: string;
-    trimmed: string;
-    inCodeSection: boolean;
-    isCode: boolean;
-    isExplanation: boolean;
-    codeStarted: boolean;
-  }): { add: boolean; continueSection: boolean } {
+  static shouldAddToCodeSection(params: CodeSectionParams): CodeSectionResult {
     const { trimmed, inCodeSection, isCode, isExplanation, codeStarted } =
       params;
 
@@ -131,9 +220,20 @@ export class UIHelper {
 
   /**
    * Checks if a line looks like explanatory text rather than code.
+   *
+   * Overloads allow passing either (line, isCodeLine) or an object { line, isCodeLine }.
    */
-  static isExplanatoryText(line: string, isCodeLine: boolean): boolean {
-    if (isCodeLine) return false;
+  static isExplanatoryText(line: string, isCodeLine: boolean): boolean;
+  static isExplanatoryText(params: { line: string; isCodeLine: boolean }): boolean;
+  static isExplanatoryText(
+    lineOrParams: string | { line: string; isCodeLine: boolean },
+    isCodeLine?: boolean
+  ): boolean {
+    const line = typeof lineOrParams === 'string' ? lineOrParams : lineOrParams.line;
+    const codeFlag =
+      typeof lineOrParams === 'string' ? !!isCodeLine : lineOrParams.isCodeLine;
+
+    if (codeFlag) return false;
 
     const explanationPatterns = [
       /^(here|this|the|you|we|it|to|for|in|and|or|but|with|that)\s+/i,
@@ -146,8 +246,11 @@ export class UIHelper {
 
   /**
    * Extracts inline code from mixed text by analyzing line patterns.
+   *
+   * Accepts a single object parameter { text } to avoid primitive-obsession.
    */
-  static extractInlineCode(text: string): string | null {
+  static extractInlineCode(params: { text: string }): string | null {
+    const text = params?.text ?? '';
     const lines = text.split('\n');
     const codeLines = UIHelper.processCodeLines(lines);
     return UIHelper.validateExtractedCode(codeLines);
@@ -160,8 +263,8 @@ export class UIHelper {
 
     for (const line of lines) {
       const trimmed = line.trim();
-      const isCode = UIHelper.isCodeLine(line);
-      const isExplanation = UIHelper.isExplanatoryText(line, isCode);
+      const isCode = UIHelper.isCodeLine({ line });
+      const isExplanation = UIHelper.isExplanatoryText({ line, isCodeLine: isCode });
 
       const result = UIHelper.shouldAddToCodeSection({
         line,
@@ -189,7 +292,7 @@ export class UIHelper {
     const code = codeLines.join('\n').trim();
 
     if (code.length < 20) return null;
-    if (!UIHelper.containsArduinoCode(code)) return null;
+    if (!UIHelper.containsArduinoCode({ text: code })) return null;
 
     return code;
   }
@@ -203,7 +306,7 @@ export class UIHelper {
       return explicitBlocks;
     }
 
-    const inlineCode = UIHelper.extractInlineCode(text);
+    const inlineCode = UIHelper.extractInlineCode({ text });
     if (inlineCode) {
       return [{ code: inlineCode, type: 'inline', language: 'cpp' }];
     }
@@ -214,34 +317,27 @@ export class UIHelper {
   /**
    * Gets the programming language for syntax highlighting based on file extension.
    */
-  static getFileLanguage(filePath: string): string {
-    const FILE_LANGUAGE_MAP: { [key: string]: string } = {
-      ino: 'cpp',
-      cpp: 'cpp',
-      cc: 'cpp',
-      cxx: 'cpp',
-      h: 'cpp',
-      hpp: 'cpp',
-      c: 'c',
-      js: 'javascript',
-      py: 'python',
+  static getFileLanguage(filePath: string): Language {
+    const FILE_LANGUAGE_MAP: Record<string, Language> = {
+      ino: Language.Cpp,
+      cpp: Language.Cpp,
+      cc: Language.Cpp,
+      cxx: Language.Cpp,
+      h: Language.Cpp,
+      hpp: Language.Cpp,
+      c: Language.C,
+      js: Language.JavaScript,
+      py: Language.Python,
     };
 
     const ext = filePath.split('.').pop()?.toLowerCase() || '';
-    return FILE_LANGUAGE_MAP[ext] || 'text';
+    return FILE_LANGUAGE_MAP[ext] ?? Language.Text;
   }
 
   /**
    * Finds matching lines using lookahead to detect additions/deletions.
    */
-  static findLineMatch(params: {
-    oldLines: string[];
-    newLines: string[];
-    oldIdx: number;
-    newIdx: number;
-    decorations: any[];
-    contentWidgets: any[];
-  }): { oldIdx: number; newIdx: number } {
+  static findLineMatch(params: FindLineMatchParams): FindLineMatchResult {
     const { oldLines, newLines, oldIdx, newIdx, decorations, contentWidgets } =
       params;
 
@@ -276,20 +372,14 @@ export class UIHelper {
     });
   }
 
-  private static checkDeletion(params: {
-    oldLines: string[];
-    newLines: string[];
-    oldIdx: number;
-    newIdx: number;
-    contentWidgets: any[];
-  }): { oldIdx: number; newIdx: number } | null {
+  private static checkDeletion(params: DeletionParams): FindLineMatchResult | null {
     const { oldLines, newLines, oldIdx, newIdx, contentWidgets } = params;
-    const lookahead = UIHelper.tryLookaheadMatch(
-      newLines[newIdx],
-      oldLines,
-      oldIdx + 1,
-      3
-    );
+    const lookahead = UIHelper.tryLookaheadMatch({
+      currentLine: newLines[newIdx],
+      searchLines: oldLines,
+      searchStartIdx: oldIdx + 1,
+      maxLookahead: 3,
+    });
 
     if (lookahead !== -1) {
       // Deletion detected: old line removed from new text.
@@ -301,20 +391,14 @@ export class UIHelper {
     return null;
   }
 
-  private static checkAddition(params: {
-    oldLines: string[];
-    newLines: string[];
-    oldIdx: number;
-    newIdx: number;
-    decorations: any[];
-  }): { oldIdx: number; newIdx: number } | null {
+  private static checkAddition(params: AdditionParams): FindLineMatchResult | null {
     const { oldLines, newLines, oldIdx, newIdx, decorations } = params;
-    const lookahead = UIHelper.tryLookaheadMatch(
-      oldLines[oldIdx],
-      newLines,
-      newIdx + 1,
-      3
-    );
+    const lookahead = UIHelper.tryLookaheadMatch({
+      currentLine: oldLines[oldIdx],
+      searchLines: newLines,
+      searchStartIdx: newIdx + 1,
+      maxLookahead: 3,
+    });
 
     if (lookahead !== -1) {
       // Addition detected: new line inserted into new text.
@@ -325,14 +409,7 @@ export class UIHelper {
     return null;
   }
 
-  private static handleDirectReplacement(params: {
-    oldLines: string[];
-    newLines: string[];
-    oldIdx: number;
-    newIdx: number;
-    decorations: any[];
-    contentWidgets: any[];
-  }): { oldIdx: number; newIdx: number } {
+  private static handleDirectReplacement(params: ReplacementParams): FindLineMatchResult {
     const { oldIdx, newIdx, decorations, contentWidgets } = params;
 
     // Replacement: show deleted above added
@@ -348,12 +425,8 @@ export class UIHelper {
   /**
    * Performs lookahead matching to find line correspondence.
    */
-  static tryLookaheadMatch(
-    currentLine: string,
-    searchLines: string[],
-    searchStartIdx: number,
-    maxLookahead: number
-  ): number {
+  static tryLookaheadMatch(params: LookaheadParams): number {
+    const { currentLine, searchLines, searchStartIdx, maxLookahead } = params;
     for (
       let i = 0;
       i < maxLookahead && searchStartIdx + i < searchLines.length;
@@ -367,9 +440,17 @@ export class UIHelper {
   }
 
   /**
+   * Decoration class constants to avoid string scattering.
+   */
+  private static readonly DECORATION_CLASSES = {
+    ADDED_LINE: 'spectre-diff-line-added',
+    GLYPH_ADD: 'spectre-diff-glyph-add',
+  };
+
+  /**
    * Adds decoration for an added line.
    */
-  static addAdditionDecoration(decorations: any[], lineNumber: number): void {
+  static addAdditionDecoration(decorations: Decoration[], lineNumber: number): void {
     decorations.push({
       range: {
         startLineNumber: lineNumber,
@@ -379,8 +460,8 @@ export class UIHelper {
       },
       options: {
         isWholeLine: true,
-        className: 'spectre-diff-line-added',
-        glyphMarginClassName: 'spectre-diff-glyph-add',
+        className: UIHelper.DECORATION_CLASSES.ADDED_LINE,
+        glyphMarginClassName: UIHelper.DECORATION_CLASSES.GLYPH_ADD,
       },
     });
   }
@@ -389,11 +470,11 @@ export class UIHelper {
    * Computes diff decorations and content widgets for line-by-line comparison.
    */
   static computeDiffElements(
-    oldLines: string[],
-    newLines: string[]
-  ): { decorations: any[]; contentWidgets: any[] } {
-    const decorations: any[] = [];
-    const contentWidgets: any[] = [];
+    oldLines: Lines,
+    newLines: Lines
+  ): { decorations: Decoration[]; contentWidgets: ContentWidget[] } {
+    const decorations: Decoration[] = [];
+    const contentWidgets: ContentWidget[] = [];
     let oldIdx = 0;
     let newIdx = 0;
 
@@ -443,7 +524,7 @@ export class UIHelper {
   /**
    * Creates view zones for removed lines.
    */
-  static createViewZones(control: any, contentWidgets: any[]): string[] {
+  static createViewZones(control: any, contentWidgets: ContentWidget[]): string[] {
     const zoneIds: string[] = [];
     control.changeViewZones((changeAccessor: any) => {
       for (const widget of contentWidgets) {
@@ -462,7 +543,7 @@ export class UIHelper {
           `;
 
           const lineText = document.createElement('span');
-          lineText.textContent = widget.text ?? widget.deletedLine ?? '';
+          lineText.textContent = widget.text ?? '';
           lineText.style.cssText = 'opacity: 0.8;';
           container.appendChild(lineText);
 
@@ -485,13 +566,34 @@ export class UIHelper {
    * Gets language display name and line count for a code block.
    */
   static getCodeBlockMetadata(codeBlock: CodeBlock): {
-    language: string;
+    language: Language;
     lineCount: number;
   } {
     const lineCount = codeBlock.code.split('\n').length;
-    const language = codeBlock.language
-      ? codeBlock.language.toUpperCase()
-      : 'ARDUINO';
+    const rawLanguage = codeBlock.language;
+    const language = UIHelper.normalizeLanguage(rawLanguage);
     return { language, lineCount };
+  }
+
+  private static normalizeLanguage(lang: string | undefined): Language {
+    const l = (lang || '').toLowerCase();
+
+    const langMap: Record<string, Language> = {
+      cpp: Language.Cpp,
+      'c++': Language.Cpp,
+      arduino: Language.Cpp,
+      ino: Language.Cpp,
+      h: Language.Cpp,
+      hpp: Language.Cpp,
+      cc: Language.Cpp,
+      cxx: Language.Cpp,
+      c: Language.C,
+      js: Language.JavaScript,
+      javascript: Language.JavaScript,
+      py: Language.Python,
+      python: Language.Python,
+    };
+
+    return langMap[l] ?? Language.Arduino;
   }
 }

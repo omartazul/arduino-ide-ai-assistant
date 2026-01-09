@@ -2,28 +2,8 @@
  * Helper utilities for upload and compilation operations in agent mode.
  * Handles upload retries, error analysis, and compilation error detection.
  *
- * CODESCENE WARNINGS (Acceptable):
- *
- * 1. "String Heavy Function Arguments":
- *    Methods like checkCompilationError(errLower: string, errText: string) use 2 strings
- *    with distinct purposes:
- *    - errLower: pre-processed lowercase for efficient pattern matching
- *
  * @author Tazul Islam
  *
- *    - errText: original text for error display
- *    This avoids repeated toLowerCase() calls and is more efficient than a parameter object.
- *
- * 2. "Primitive Obsession":
- *    This is a utility module with pattern matching and analysis functions. Using primitives
- *    (strings, booleans) is appropriate for:
- *    - scanLinesForErrors(lines: string[], patterns: RegExp[]) - array utilities
- *    - categorizeLine(line: string) - single string classification
- *    - analyzeUploadOutput(diff: string) - text analysis
- *
- *    Parameter objects would add boilerplate without improving clarity or type safety.
- *    The code uses TypeScript interfaces (CategorizedUploadOutput, UploadAnalysisResult)
- *    for complex return types, which is the right balance.
  */
 
 /**
@@ -100,51 +80,113 @@ const UPLOAD_PATTERN_CATEGORIES = {
  * Compilation error patterns.
  */
 const COMPILATION_ERROR_PATTERNS = [
-  /error:/gi,
-  /compilation terminated/gi,
-  /undefined reference/gi,
-  /was not declared/gi,
-  /expected.*before/gi,
-  /stray.*in program/gi,
-  /missing terminating/gi,
-  /fatal error:/gi,
-  /syntax error/gi,
-  /cannot find/gi,
-  /not found/gi,
-  /failed to compile/gi,
+  /error:/i,
+  /compilation terminated/i,
+  /undefined reference/i,
+  /was not declared/i,
+  /expected.*before/i,
+  /stray.*in program/i,
+  /missing terminating/i,
+  /fatal error:/i,
+  /syntax error/i,
+  /cannot find/i,
+  /not found/i,
+  /failed to compile/i,
 ];
+
+/**
+ * Named keyword sets to avoid scattering primitive string literals.
+ */
+export enum ErrorKeyword {
+  NotInSync = 'notInSync',
+  Permission = 'permission',
+  Compilation = 'compilation',
+  Size = 'size',
+  Programmer = 'programmer',
+}
+
+/**
+ * Small helper type to encapsulate keyword sets and avoid primitive obsession.
+ */
+class KeywordSet {
+  readonly values: readonly string[];
+
+  constructor(values: string[]) {
+    this.values = values;
+  }
+
+  contains(text: string): boolean {
+    const lower = text.toLowerCase();
+    return this.values.some((v) => lower.includes(v));
+  }
+}
+
+/**
+ * Map of error keyword kinds to canonical keyword sets used throughout helpers.
+ */
+const ERROR_KEYWORD_SETS: Record<ErrorKeyword, KeywordSet> = {
+  [ErrorKeyword.NotInSync]: new KeywordSet(['not in sync']),
+  [ErrorKeyword.Permission]: new KeywordSet(['permission denied', 'access']),
+  [ErrorKeyword.Compilation]: new KeywordSet([
+    'compilation',
+    'undefined reference',
+    'was not declared',
+    'expected',
+    'error:',
+  ]),
+  [ErrorKeyword.Size]: new KeywordSet(['sketch too big', 'overflowed']),
+  [ErrorKeyword.Programmer]: new KeywordSet(['programmer']),
+};
+
+/**
+ * Potential quick scan keywords for "potential" errors.
+ */
+const POTENTIAL_ERROR_KEYWORDS = new KeywordSet([
+  'error:',
+  'failed',
+  'cannot',
+  "can't",
+]);
+
+/**
+ * Safely tests a regex against a text, resetting lastIndex to avoid stateful global regex issues.
+ */
+function testPattern(pattern: RegExp, text: string): boolean {
+  pattern.lastIndex = 0;
+  return pattern.test(text);
+}
 
 /**
  * Upload error patterns for all platforms.
  */
 const UPLOAD_ERROR_PATTERNS = [
-  /upload.*error/gi,
-  /upload.*failed/gi,
-  /upload.*timeout/gi,
-  /flash.*error/gi,
-  /flash.*failed/gi,
-  /programmer.*error/gi,
-  /programmer.*failed/gi,
-  /can't open.*port/gi,
-  /cannot open.*port/gi,
-  /ser_open.*failed/gi,
-  /ser_open.*can't open/gi,
-  /semaphore timeout/gi,
-  /exit status 1/gi,
-  /uploading error/gi,
-  /failed uploading/gi,
-  /permission denied/gi,
-  /device busy/gi,
-  /access denied/gi,
-  /device not found/gi,
-  /port.*busy/gi,
-  /port.*in use/gi,
-  /avrdude.*error/gi,
-  /avrdude.*failed/gi,
-  /esptool.*error/gi,
-  /esptool.*failed/gi,
-  /openocd.*error/gi,
-  /stlink.*error/gi,
+  /upload.*error/i,
+  /upload.*failed/i,
+  /upload.*timeout/i,
+  /flash.*error/i,
+  /flash.*failed/i,
+  /programmer.*error/i,
+  /programmer.*failed/i,
+  /can't open.*port/i,
+  /cannot open.*port/i,
+  /ser_open.*failed/i,
+  /ser_open.*can't open/i,
+  /semaphore timeout/i,
+  /exit status 1/i,
+  /uploading error/i,
+  /failed uploading/i,
+  /permission denied/i,
+  /device busy/i,
+  /access denied/i,
+  /device not found/i,
+  /port.*busy/i,
+  /port.*in use/i,
+  /avrdude.*error/i,
+  /avrdude.*failed/i,
+  /esptool.*error/i,
+  /esptool.*failed/i,
+  /openocd.*error/i,
+  /stlink.*error/i,
 ];
 
 /**
@@ -160,6 +202,18 @@ interface CategorizedUploadOutput {
 }
 
 /**
+ * Strongly-typed categories for upload output lines to avoid primitive-string usage.
+ */
+export enum UploadLineCategory {
+  CriticalError = 'criticalError',
+  PortError = 'portError',
+  UploadError = 'uploadError',
+  Success = 'success',
+  NormalBuildOutput = 'normalBuildOutput',
+  Generic = 'generic',
+}
+
+/**
  * Upload analysis result.
  */
 interface UploadAnalysisResult {
@@ -170,32 +224,62 @@ interface UploadAnalysisResult {
 
 /**
  * Context for error checking strategy.
+ *
+ * Encapsulates the original text and its lowercase form and provides helpers
+ * to reduce primitive string argument passing across error-checking helpers.
  */
-interface ErrorCheckContext {
-  text: string;
-  lower: string;
+class ErrorContext {
+  readonly text: string;
+  readonly lower: string;
+
+  constructor(text: string) {
+    this.text = text;
+    this.lower = text.toLowerCase();
+  }
+
+  includes(...subs: string[]): boolean {
+    return subs.some((s) => this.lower.includes(s));
+  }
+
+  /**
+   * Helper to test a named ErrorKeyword set to avoid passing raw strings everywhere.
+   */
+  hasKeyword(kind: ErrorKeyword): boolean {
+    const keySet = ERROR_KEYWORD_SETS[kind];
+    return keySet ? keySet.contains(this.text) : false;
+  }
+
+  matches(pattern: RegExp): boolean {
+    // Use safe pattern tester to avoid stateful behavior with potentially global regexes
+    if (testPattern(pattern, this.text)) return true;
+    return testPattern(pattern, this.lower);
+  }
+
+  snippet(max = 300): string {
+    return this.text.substring(0, max);
+  }
 }
 
 /**
  * Helper class for upload and compilation operations.
  */
 export class UploadHelper {
-  static scanForCompilationErrors(lines: string[]): string[] {
+  static scanForCompilationErrors(lines: ReadonlyArray<string>): string[] {
     return UploadHelper.scanLinesForErrors(lines, COMPILATION_ERROR_PATTERNS);
   }
 
-  static scanForUploadErrors(lines: string[]): string[] {
+  static scanForUploadErrors(lines: ReadonlyArray<string>): string[] {
     return UploadHelper.scanLinesForErrors(lines, UPLOAD_ERROR_PATTERNS);
   }
 
   /**
    * Scans lines for errors using provided patterns.
    */
-  static scanLinesForErrors(lines: string[], patterns: RegExp[]): string[] {
+  static scanLinesForErrors(lines: ReadonlyArray<string>, patterns: ReadonlyArray<RegExp>): string[] {
     const errors: string[] = [];
     for (const line of lines) {
       for (const pattern of patterns) {
-        if (pattern.test(line)) {
+        if (testPattern(pattern, line)) {
           errors.push(line);
           break;
         }
@@ -207,49 +291,43 @@ export class UploadHelper {
   /**
    * Checks for potential error keywords in lines.
    */
-  static findPotentialErrors(lines: string[]): string[] {
-    const errorKeywords = ['error:', 'failed', 'cannot', "can't"];
-    return lines.filter((line) => {
-      const lower = line.toLowerCase();
-      return errorKeywords.some((kw) => lower.includes(kw));
-    });
+  static findPotentialErrors(lines: ReadonlyArray<string>): string[] {
+    return lines.filter((line) => POTENTIAL_ERROR_KEYWORDS.contains(line));
   }
 
   /**
    * Categorizes a single output line by checking against all pattern categories.
    * Returns the category name or null if no match found.
    */
-  static categorizeLine(
-    line: string
-  ): keyof typeof UPLOAD_PATTERN_CATEGORIES | 'generic' | null {
+  static categorizeLine(line: string): UploadLineCategory | null {
     // Check critical errors first
-    if (UPLOAD_PATTERN_CATEGORIES.criticalError.some((p) => p.test(line))) {
-      return 'criticalError';
+    if (UPLOAD_PATTERN_CATEGORIES.criticalError.some((p) => testPattern(p, line))) {
+      return UploadLineCategory.CriticalError;
     }
 
     // Check port errors
-    if (UPLOAD_PATTERN_CATEGORIES.portError.some((p) => p.test(line))) {
-      return 'portError';
+    if (UPLOAD_PATTERN_CATEGORIES.portError.some((p) => testPattern(p, line))) {
+      return UploadLineCategory.PortError;
     }
 
     // Check upload errors
-    if (UPLOAD_PATTERN_CATEGORIES.uploadError.some((p) => p.test(line))) {
-      return 'uploadError';
+    if (UPLOAD_PATTERN_CATEGORIES.uploadError.some((p) => testPattern(p, line))) {
+      return UploadLineCategory.UploadError;
     }
 
     // Check success patterns
-    if (UPLOAD_PATTERN_CATEGORIES.success.some((p) => p.test(line))) {
-      return 'success';
+    if (UPLOAD_PATTERN_CATEGORIES.success.some((p) => testPattern(p, line))) {
+      return UploadLineCategory.Success;
     }
 
     // Check normal build output
-    if (UPLOAD_PATTERN_CATEGORIES.normalBuildOutput.some((p) => p.test(line))) {
-      return 'normalBuildOutput';
+    if (UPLOAD_PATTERN_CATEGORIES.normalBuildOutput.some((p) => testPattern(p, line))) {
+      return UploadLineCategory.NormalBuildOutput;
     }
 
     // Check for generic errors (lines containing "error" but not matching specific patterns)
-    if (/error/i.test(line) && !/avrdude.*done/i.test(line)) {
-      return 'generic';
+    if (testPattern(/error/i, line) && !testPattern(/avrdude.*done/i, line)) {
+      return UploadLineCategory.Generic;
     }
 
     return null;
@@ -258,7 +336,7 @@ export class UploadHelper {
   /**
    * Categorizes all upload output lines into their respective categories.
    */
-  static categorizeUploadLines(lines: string[]): CategorizedUploadOutput {
+  static categorizeUploadLines(lines: ReadonlyArray<string>): CategorizedUploadOutput {
     const categorized: CategorizedUploadOutput = {
       criticalErrors: [],
       portErrors: [],
@@ -272,22 +350,22 @@ export class UploadHelper {
       const category = UploadHelper.categorizeLine(line);
 
       switch (category) {
-        case 'criticalError':
+        case UploadLineCategory.CriticalError:
           categorized.criticalErrors.push(line);
           break;
-        case 'portError':
+        case UploadLineCategory.PortError:
           categorized.portErrors.push(line);
           break;
-        case 'uploadError':
+        case UploadLineCategory.UploadError:
           categorized.uploadErrors.push(line);
           break;
-        case 'success':
+        case UploadLineCategory.Success:
           categorized.successLines.push(line);
           break;
-        case 'normalBuildOutput':
+        case UploadLineCategory.NormalBuildOutput:
           categorized.normalBuildLines.push(line);
           break;
-        case 'generic':
+        case UploadLineCategory.Generic:
           categorized.genericErrors.push(line);
           break;
       }
@@ -407,7 +485,7 @@ export class UploadHelper {
    * Analyzes upload output and determines success/failure.
    */
   static analyzeUploadOutput(diff: string): UploadAnalysisResult {
-    const lines = diff.split('\n').filter((l) => l.trim());
+    const lines = diff.split('\n').filter((l) => l.trim().length > 0);
     const categorized = UploadHelper.categorizeUploadLines(lines);
     return UploadHelper.determineUploadResult(categorized, lines.length > 0);
   }
@@ -415,25 +493,22 @@ export class UploadHelper {
   /**
    * Formats upload error with specific guidance based on error type.
    */
-  static formatUploadError(errText: string): Error {
-    const context: ErrorCheckContext = {
-      text: errText,
-      lower: errText.toLowerCase(),
-    };
+  static formatUploadError(errTextOrContext: string | ErrorContext): Error {
+    const context =
+      typeof errTextOrContext === 'string'
+        ? new ErrorContext(errTextOrContext)
+        : errTextOrContext;
 
     // Common Arduino IDE/CLI upload failures
-    if (context.lower.includes('not in sync')) {
+    if (context.hasKeyword(ErrorKeyword.NotInSync)) {
       return new Error(
-        `Upload failed - board not responding. Try:\n1. Reset the board\n2. Try a different USB cable\n3. Select a different port\n\nError: ${errText}`
+        `Upload failed - board not responding. Try:\n1. Reset the board\n2. Try a different USB cable\n3. Select a different port\n\nError: ${context.snippet(300)}`
       );
     }
 
-    if (
-      context.lower.includes('permission denied') ||
-      context.lower.includes('access')
-    ) {
+    if (context.hasKeyword(ErrorKeyword.Permission)) {
       return new Error(
-        `Permission denied - port may be in use. Try:\n1. Close Serial Monitor\n2. Disconnect other programs\n3. Try a different port\n\nError: ${errText}`
+        `Permission denied - port may be in use. Try:\n1. Close Serial Monitor\n2. Disconnect other programs\n3. Try a different port\n\nError: ${context.snippet(300)}`
       );
     }
 
@@ -450,46 +525,31 @@ export class UploadHelper {
     if (programmerError) return programmerError;
 
     // Generic upload error
-    return new Error(`Upload failed:\n${errText}`);
+    return new Error(`Upload failed:\n${context.snippet(300)}`);
   }
 
-  static checkCompilationError(context: ErrorCheckContext): Error | null {
-    const hasCompilationError =
-      context.lower.includes('compilation') ||
-      context.lower.includes('undefined reference') ||
-      context.lower.includes('was not declared');
-
-    if (hasCompilationError) {
+  static checkCompilationError(context: ErrorContext): Error | null {
+    if (context.hasKeyword(ErrorKeyword.Compilation)) {
       return new Error(
-        `Compilation error - fix the code first:\n${context.text.substring(
-          0,
-          500
-        )}`
+        `Compilation error - fix the code first:\n${context.snippet(500)}`
       );
     }
     return null;
   }
 
-  static checkSizeError(context: ErrorCheckContext): Error | null {
-    if (
-      context.lower.includes('sketch too big') ||
-      context.lower.includes('overflowed')
-    ) {
+  static checkSizeError(context: ErrorContext): Error | null {
+    if (context.hasKeyword(ErrorKeyword.Size)) {
       return new Error(
-        `Sketch is too large for the selected board:\n${context.text.substring(
-          0,
-          300
-        )}`
+        `Sketch is too large for the selected board:\n${context.snippet(300)}`
       );
     }
     return null;
   }
 
-  static checkProgrammerError(context: ErrorCheckContext): Error | null {
-    if (context.lower.includes('programmer')) {
+  static checkProgrammerError(context: ErrorContext): Error | null {
+    if (context.hasKeyword(ErrorKeyword.Programmer)) {
       return new Error(
-        `Programmer/bootloader error - check board and connections:\n${context.text.substring(
-          0,
+        `Programmer/bootloader error - check board and connections:\n${context.snippet(
           300
         )}`
       );
@@ -501,7 +561,7 @@ export class UploadHelper {
    * Scans lines for various error types and returns the first found error group.
    * Priority: Upload Error > Compilation Error > Potential Error
    */
-  static extractFirstError(recentLines: string[]): string | null {
+  static extractFirstError(recentLines: ReadonlyArray<string>): string | null {
     const uploadErrorLines = UploadHelper.scanForUploadErrors(recentLines);
     if (uploadErrorLines.length > 0) {
       return uploadErrorLines.join('\n');

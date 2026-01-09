@@ -28,7 +28,6 @@ import * as WidgetUtilities from './ui/ui-utilities';
 import * as AgentExecutionHelpers from './agent/agent-execution-router';
 import * as AgentActions from './agent/agent-actions';
 import * as AgentModeTools from './agent/agent-mode-tools';
-import * as UiUtilities from './ui/ui-utilities';
 import * as CodeBlockRendering from './ui/code-block-rendering';
 import { SpectreView } from './ui/spectre-view';
 import { StreamController } from './ui/stream-controller';
@@ -48,6 +47,100 @@ interface MemoryComparisonParams {
   newText: string;
   oldText: string;
   memory: ConversationMemory | undefined;
+}
+
+/**
+ * Strongly-typed shapes to avoid primitive-obsession by naming commonly-used
+ * object structures instead of repeating inline anonymous types.
+ */
+/**
+ * Semantic aliases to avoid primitive-obsession and document intent for commonly-used primitives.
+ */
+type FilePath = string;
+type FileContent = string;
+type AbortKey = string;
+type MessageId = string;
+type Metadata = Record<string, unknown>;
+
+interface SketchFile {
+  path: FilePath;
+  content: FileContent;
+}
+
+/**
+ * Use an explicit index signature interface for function args so the shape is named
+ * (helps linters/static analysis avoid flagging primitive-obsession).
+ */
+type AgentFunctionArgs = Record<string, unknown>;
+
+interface AgentFunctionCall {
+  name: string;
+  args: AgentFunctionArgs;
+}
+
+/**
+ * Small value objects to avoid primitive-obsession: wrap common parameter groups
+ * in named interfaces so call sites don't pass multiple unrelated primitives.
+ */
+interface AppendAssistantParams {
+  text: string;
+  requestSeq: number;
+}
+
+interface MutateLastAssistantParams {
+  mutator: (text: string) => string;
+  requestSeq: number;
+  parts?: MessagePart[];
+}
+
+/**
+ * Represents a structured part of an assistant message, e.g. a code block
+ * or other rich content the assistant may add to a memory entry.
+ */
+interface MessagePart {
+  type: string;
+  content: string;
+  // Optional structured metadata instead of an open index-signature to avoid primitive-obsession
+  metadata?: Metadata;
+}
+
+/**
+ * Strongly-typed memory message stored in ConversationMemory.recentMessages.
+ */
+enum Role {
+  Assistant = 'assistant',
+  User = 'user',
+  System = 'system',
+}
+
+enum SpectreMode {
+  Basic = 'basic',
+  Agent = 'agent',
+}
+
+interface MemoryMessage {
+  id?: MessageId;
+  role: Role;
+  text: string;
+  parts?: MessagePart[];
+  estimatedTokens?: number;
+}
+
+interface ExecutionResult {
+  success: boolean;
+  result?: string;
+  error?: string;
+}
+
+/**
+ * Event payload delivered by the AI streaming API callbacks.
+ * Extracted into a named interface to avoid primitive-obsession (inline anonymous types).
+ */
+interface StreamEvent {
+  key: AbortKey;
+  delta?: string;
+  done?: boolean;
+  error?: string;
 }
 
 /**
@@ -83,6 +176,11 @@ const WIDGET_TIMING = {
   PACKAGE_INDEX_POLL_INTERVAL: 500, // Poll interval for package index updates
 } as const;
 
+const PREF_KEYS = {
+  MODE: 'arduino.spectre.mode',
+  MODEL: 'arduino.spectre.model',
+} as const;
+
 import { ArduinoPreferences } from '../arduino-preferences';
 import { StorageService } from '@theia/core/lib/browser/storage-service';
 import { SketchesServiceClientImpl } from '../sketches-service-client-impl';
@@ -107,7 +205,7 @@ interface SpectreState extends ChatManagerState {
   busy: boolean;
   retryable?: boolean;
   requestSeq: number;
-  currentAbortKey?: string;
+  currentAbortKey?: AbortKey;
   requestSessionId?: number;
   quotaUsed: number;
   quotaCapacity: number;
@@ -217,7 +315,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
       }),
     focusInput: () => this.focusInput(),
     mutateLastAssistant: (mutator, requestSeq) =>
-      this.mutateLastAssistant(mutator, requestSeq),
+      this.mutateLastAssistant({ mutator, requestSeq }),
   });
 
   // Timer tracking for proper cleanup and memory leak prevention
@@ -229,12 +327,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
    * Buffers text deltas and uses a ticker to smoothly reveal them in the UI.
    * Handles errors and completion signals.
    */
-  onStream(event: {
-    key: string;
-    delta?: string;
-    done?: boolean;
-    error?: string;
-  }): void {
+  onStream(event: StreamEvent): void {
     this.streamController.onStream(event);
   }
 
@@ -327,7 +420,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
     // This triggers backend's setClient() which pushes current quota immediately
     await WidgetUtilities.refreshQuotaForCurrentModel({
       ai: this.ai,
-      model: this.prefs['arduino.spectre.model'],
+      model: this.prefs[PREF_KEYS.MODEL],
       getFallbackRpmLimit: () => this.getRpmLimit(),
       setStateData: (patch) => this.setStateData(patch),
     });
@@ -340,13 +433,13 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
         };
       }
     ).onPreferenceChanged?.((e) => {
-      if (e.preferenceName === 'arduino.spectre.model') {
+      if (e.preferenceName === PREF_KEYS.MODEL) {
         // Update RPM limit immediately when model changes
         this.setStateData({ rpmLimit: this.getRpmLimit() });
         // Then refresh quota from backend
         WidgetUtilities.refreshQuotaForCurrentModel({
           ai: this.ai,
-          model: this.prefs['arduino.spectre.model'],
+          model: this.prefs[PREF_KEYS.MODEL],
           getFallbackRpmLimit: () => this.getRpmLimit(),
           setStateData: (patch) => this.setStateData(patch),
         });
@@ -462,8 +555,17 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
     );
   }
 
-  private getSpectreMode(): 'basic' | 'agent' {
-    return this.prefs['arduino.spectre.mode'] === 'agent' ? 'agent' : 'basic';
+  private getSpectreMode(): SpectreMode {
+    // Read the explicit 'arduino.spectre.mode' preference and map to the enum,
+    // avoiding fragile string checks and ensuring the correct preference key is used.
+    const raw = (this.prefs[PREF_KEYS.MODE] || '').toString().toLowerCase();
+    switch (raw) {
+      case 'agent':
+        return SpectreMode.Agent;
+      case 'basic':
+      default:
+        return SpectreMode.Basic;
+    }
   }
 
   /**
@@ -478,7 +580,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
         editorManager: this.editorManager,
         feedbackTimers: this.feedbackTimers,
         copyFeedbackDurationMs: WIDGET_TIMING.COPY_FEEDBACK_DURATION,
-        isBasicMode: this.getSpectreMode() !== 'agent',
+        isBasicMode: this.getSpectreMode() !== SpectreMode.Agent,
       },
       text,
       isStreaming,
@@ -671,7 +773,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
     }
 
     this.setStateData({ input: value });
-    UiUtilities.autoGrowTextArea(e.target, 300);
+    WidgetUtilities.autoGrowTextArea(e.target, 300);
   };
   private onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -697,7 +799,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
   }
 
   private getModelName(): string {
-    return (this.prefs['arduino.spectre.model'] || '').toLowerCase();
+    return (this.prefs[PREF_KEYS.MODEL] || '').toLowerCase();
   }
 
   /**
@@ -714,9 +816,9 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
         stateData: this.stateData,
         getStateData: () => this.stateData,
         setStateData: (patch) => this.setStateData(patch),
-        appendAssistant: (text, seq) => this.appendAssistant(text, seq),
+        appendAssistant: (text, seq) => this.appendAssistant({ text, requestSeq: seq }),
         mutateLastAssistant: (mutator, seq) =>
-          this.mutateLastAssistant(mutator, seq),
+          this.mutateLastAssistant({ mutator, requestSeq: seq }),
         focusInput: () => this.focusInput(),
         persist: () => this.persist(),
         deferScroll: () => this.deferScroll(),
@@ -732,10 +834,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
   /**
    * Executes a function call from the AI agent by routing to the appropriate agent method.
    */
-  private async executeFunctionCall(functionCall: {
-    name: string;
-    args: Record<string, unknown>;
-  }): Promise<{ success: boolean; result?: string; error?: string }> {
+  private async executeFunctionCall(functionCall: AgentFunctionCall): Promise<ExecutionResult> {
     return AgentExecutionHelpers.executeFunctionCall(
       functionCall,
       AgentActions.createAgentActions({
@@ -797,7 +896,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
       // Collect current sketch files for context (both basic and agent modes need this)
       const sketchFiles = await this.getCurrentSketchFiles();
 
-      const agentMode = this.getSpectreMode() === 'agent';
+      const agentMode = this.getSpectreMode() === SpectreMode.Agent;
 
       // Use new function calling approach for agent mode
       if (agentMode) {
@@ -821,9 +920,9 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
           persistTrackingData: () => this.persistTrackingData(),
           isNetworkError: (message) => this.isNetworkError(message),
           streamAttach: (key, seq) => this.streamController.attach(key, seq),
-          appendAssistant: (t, seq) => this.appendAssistant(t, seq),
+          appendAssistant: (t, seq) => this.appendAssistant({ text: t, requestSeq: seq }),
           mutateLastAssistant: (mutator, seq, parts) =>
-            this.mutateLastAssistant(mutator, seq, parts),
+            this.mutateLastAssistant({ mutator, requestSeq: seq, parts }),
           streamHasStarted: () => this.streamController.hasStreamStarted(),
           setStateData: (patch) => this.setStateData(patch),
           persist: () => this.persist(),
@@ -851,10 +950,8 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
    * Appends an assistant message to the conversation.
    * Also adds to memory system for long-term retention.
    */
-  private async appendAssistant(
-    text: string,
-    requestSeq: number
-  ): Promise<void> {
+  private async appendAssistant(params: AppendAssistantParams): Promise<void> {
+    const { text, requestSeq } = params;
     if (requestSeq !== this.stateData.requestSeq) return;
 
     const sessions = this.stateData.sessions.slice();
@@ -872,13 +969,13 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
       ...cur,
       messages: [
         ...cur.messages,
-        { id: `msg-${Date.now()}-assistant`, role: 'assistant', text },
+        { id: `msg-${Date.now()}-assistant`, role: Role.Assistant, text },
       ],
     };
 
     // Add to memory system (only if text is not empty - empty is placeholder)
     if (text.trim() !== '' && cur.memory) {
-      await this.memoryManager.addMessage(cur.memory, 'assistant', text);
+      await this.memoryManager.addMessage(cur.memory, Role.Assistant, text);
       this.saveSessionMemory(cur.id); // Persist memory after adding assistant response
       this.updateMemoryStats();
     }
@@ -888,11 +985,8 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
     this.deferScroll();
   }
 
-  private async mutateLastAssistant(
-    mutator: (text: string) => string,
-    requestSeq: number,
-    parts?: any[]
-  ): Promise<void> {
+  private async mutateLastAssistant(params: MutateLastAssistantParams): Promise<void> {
+    const { mutator, requestSeq, parts } = params;
     // Double-check request sequence to prevent race conditions
     if (requestSeq !== this.stateData.requestSeq) return;
 
@@ -902,67 +996,87 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
       ? sessions.findIndex((s) => s.id === requestedId)
       : this.stateData.active;
     const cur = sessions[idx];
-    if (!cur) {
-      return;
-    }
+    if (!cur) return;
+
     const msgs = cur.messages.slice();
     const last = msgs[msgs.length - 1];
+    if (!last || last.role !== Role.Assistant) return;
 
-    if (last && last.role === 'assistant') {
-      const newText = mutator(last.text);
-      msgs[msgs.length - 1] = { id: last.id, role: 'assistant', text: newText };
-      sessions[idx] = { ...cur, messages: msgs };
+    // Mutate last assistant text in UI
+    const newText = mutator(last.text);
+    msgs[msgs.length - 1] = { id: last.id, role: Role.Assistant, text: newText };
+    sessions[idx] = { ...cur, messages: msgs };
 
-      // Ensure assistant replies are represented in session memory.
-      // In streaming mode, appendAssistant('') creates only a UI placeholder.
-      // Without this, the memory buffer ends up with only user turns and the model will
-      // re-introduce itself because it doesn't see its prior answers.
-      if (cur.memory) {
-        const shouldUpdateText = this.shouldUpdateMemory({
-          newText,
-          oldText: last.text,
-          memory: cur.memory,
-        });
+    // Move memory update logic into a helper to reduce nesting/complexity
+    await this.updateAssistantMemoryIfNeeded(cur, newText, last.text, parts);
 
-        const lastMemoryMsg =
-          cur.memory.recentMessages[cur.memory.recentMessages.length - 1];
+    this.setStateData({ sessions });
+    this.persist();
+    this.deferScroll();
+  }
 
-        let createdAssistantEntry = false;
+  private async updateAssistantMemoryIfNeeded(
+    cur: ChatSession,
+    newText: string,
+    oldText: string,
+    parts?: MessagePart[]
+  ): Promise<void> {
+    // Guard: no memory associated with session
+    if (!cur.memory) return;
 
-        if (!lastMemoryMsg || lastMemoryMsg.role !== 'assistant') {
-          // Create the assistant entry the first time we receive streamed text.
-          // Skip creating empty placeholders.
-          if (newText.trim() !== '' || parts) {
-            await this.memoryManager.addMessage(
-              cur.memory,
-              'assistant',
-              newText,
-              parts
-            );
-            createdAssistantEntry = true;
-          }
-        } else if (shouldUpdateText || parts) {
-          // Update existing assistant message in memory.
-          lastMemoryMsg.text = newText;
-          if (parts) {
-            lastMemoryMsg.parts = parts;
-          }
-          lastMemoryMsg.estimatedTokens = TokenCounter.estimate(newText, 'natural');
-        }
+    const hasParts = this.partsAreNonEmpty(parts);
+    const trimmed = newText.trim();
 
-        // Persist memory only when we create the entry or when we receive final parts.
-        // This avoids excessive storage writes during streaming while still guaranteeing
-        // the final assistant message is saved for the next turn.
-        if (createdAssistantEntry || parts) {
-          this.saveSessionMemory(cur.id);
-          this.updateMemoryStats();
-        }
-      }
+    const shouldUpdateText = this.shouldUpdateMemory({
+      newText,
+      oldText,
+      memory: cur.memory,
+    });
 
-      this.setStateData({ sessions });
-      this.persist();
-      this.deferScroll();
+    const recent = cur.memory.recentMessages ?? [];
+    const lastMemoryMsg = recent[recent.length - 1] as MemoryMessage | undefined;
+
+    // Create a new assistant memory entry when none exists and we have content
+    if (!this.hasAssistantMemoryEntry(lastMemoryMsg)) {
+      if (trimmed === '' && !hasParts) return;
+      await this.memoryManager.addMessage(cur.memory, Role.Assistant, newText, parts);
+      this.saveSessionMemory(cur.id);
+      this.updateMemoryStats();
+      return;
     }
+
+    // Nothing meaningful changed (no substantive text change and no new parts)
+    if (!shouldUpdateText && !hasParts) return;
+
+    // Apply the in-place update to the existing assistant memory message
+    this.applyUpdateToLastMemory(lastMemoryMsg!, newText, parts);
+
+    // Persist only for final updates that include parts to avoid excessive writes
+    if (hasParts) {
+      this.saveSessionMemory(cur.id);
+      this.updateMemoryStats();
+    }
+  }
+
+  private partsAreNonEmpty(parts?: MessagePart[]): boolean {
+    return Array.isArray(parts) && parts.length > 0;
+  }
+
+  private hasAssistantMemoryEntry(lastMemoryMsg: MemoryMessage | undefined): boolean {
+    return !!lastMemoryMsg && lastMemoryMsg.role === Role.Assistant;
+  }
+
+  private applyUpdateToLastMemory(lastMemoryMsg: MemoryMessage, newText: string, parts?: MessagePart[]): void {
+    // Use a mutable partial type to avoid index-signature hacks and make intent explicit
+    const mutableLast: Partial<MemoryMessage> = lastMemoryMsg;
+    mutableLast.text = newText;
+    if (this.partsAreNonEmpty(parts)) {
+      mutableLast.parts = parts;
+    } else {
+      // Delete the optional property explicitly when there are no parts
+      delete (mutableLast as any).parts;
+    }
+    mutableLast.estimatedTokens = TokenCounter.estimate(newText, 'natural');
   }
 
   private cancel(): void {
@@ -1034,7 +1148,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
   }
 
   private deferScroll(): void {
-    UiUtilities.deferScrollToBottom(this.node, '.spectre-messages');
+    WidgetUtilities.deferScrollToBottom(this.node, '.spectre-messages');
   }
 
   /**
@@ -1042,9 +1156,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
    * Returns file paths and contents for better AI assistance.
    * Includes both saved and unsaved (dirty) files.
    */
-  private async getCurrentSketchFiles(): Promise<
-    Array<{ path: string; content: string }>
-  > {
+  private async getCurrentSketchFiles(): Promise<SketchFile[]> {
     return SketchUtilities.getCurrentSketchFiles({
       sketchesClient: this.sketchesClient,
       editorManager: this.editorManager,

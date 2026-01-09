@@ -12,6 +12,15 @@ import { spectreWarn } from '../../../common/protocol/spectre-types';
 import * as RenderingHelpers from './message-rendering';
 import { UIHelper } from './ui-helper';
 
+const COPY_LABEL = 'Copy code to clipboard';
+const COPY_TITLE = 'Copy code to clipboard';
+const PASTE_LABEL = 'Copy code and focus editor for pasting';
+const PASTE_TITLE = 'Copy code and focus editor for pasting';
+const COPY_BUTTON_TEXT = '📋 Copy';
+const PASTE_BUTTON_TEXT = '📝 Paste';
+const COPY_SUCCESS_MSG = '✓ Copied';
+const PASTE_SUCCESS_MSG = '✓ Ready to Paste';
+
 export interface CodeBlockRenderingDeps {
   editorManager: EditorManager;
   feedbackTimers: Set<number>;
@@ -97,6 +106,69 @@ async function fallbackToClipboard(params: {
 }
 
 /**
+ * Apply temporary visual feedback to a button and clear it after duration.
+ */
+function applyButtonFeedback(
+  button: HTMLButtonElement,
+  originalHTML: string,
+  deps: CodeBlockRenderingDeps,
+  messageHTML: string
+) {
+  button.classList.add('success');
+  button.innerHTML = messageHTML;
+  const timerId = window.setTimeout(() => {
+    deps.feedbackTimers.delete(timerId);
+    button.classList.remove('success');
+    button.innerHTML = originalHTML;
+  }, deps.copyFeedbackDurationMs);
+  deps.feedbackTimers.add(timerId);
+}
+
+/**
+ * Generic helper to create button action handlers that run an async action and apply feedback.
+ * Accepts a single options object to avoid heavy positional string arguments.
+ */
+function createButtonActionHandler(params: {
+  deps: CodeBlockRenderingDeps;
+  action: () => Promise<boolean>;
+  successMessage: string;
+}) {
+  const { deps, action, successMessage } = params;
+
+  return async () => {
+    const success = await action();
+    const button = document.activeElement as HTMLButtonElement | null;
+    if (button && success) {
+      const originalHTML = button.innerHTML;
+      applyButtonFeedback(button, originalHTML, deps, successMessage);
+    }
+  };
+}
+
+/**
+ * Create a copy handler that uses the copyToClipboard helper and applies feedback.
+ */
+function createCopyHandler(deps: CodeBlockRenderingDeps, code: string) {
+  return createButtonActionHandler({
+    deps,
+    action: () => copyToClipboard(code),
+    successMessage: COPY_SUCCESS_MSG,
+  });
+}
+
+/**
+ * Create a paste handler that attempts to paste into the editor and applies feedback.
+ */
+function createPasteHandler(deps: CodeBlockRenderingDeps, code: string) {
+  return createButtonActionHandler({
+    deps,
+    action: () =>
+      pasteToEditor({ code, deps: { editorManager: deps.editorManager } }),
+    successMessage: PASTE_SUCCESS_MSG,
+  });
+}
+
+/**
  * Pastes code to the current editor, replacing all content.
  */
 export async function pasteToEditor(params: {
@@ -145,7 +217,11 @@ export function renderSingleCodeBlock(params: {
   index: number;
 }): React.ReactNode {
   const { deps, codeBlock, index } = params;
-  const { language, lineCount } = UIHelper.getCodeBlockMetadata(codeBlock);
+  const { language, lineCount } = UIHelper.getCodeBlockMetadata(
+    // Cast to any because ExtractedCodeBlock.language is a string | undefined,
+    // while the metadata helper expects a stricter Language type.
+    codeBlock as any
+  );
 
   return (
     <div key={`code-${index}`} className="spectre-code-container">
@@ -156,50 +232,19 @@ export function renderSingleCodeBlock(params: {
         <div className="spectre-code-actions">
           <button
             className="spectre-code-action-btn"
-            onClick={async () => {
-              const success = await copyToClipboard(codeBlock.code);
-              const button = document.activeElement as HTMLButtonElement;
-              if (button && success) {
-                const originalHTML = button.innerHTML;
-                button.classList.add('success');
-                button.innerHTML = '✓ Copied';
-                const timerId = window.setTimeout(() => {
-                  deps.feedbackTimers.delete(timerId);
-                  button.classList.remove('success');
-                  button.innerHTML = originalHTML;
-                }, deps.copyFeedbackDurationMs);
-                deps.feedbackTimers.add(timerId);
-              }
-            }}
-            aria-label="Copy code to clipboard"
-            title="Copy code to clipboard"
+            onClick={createCopyHandler(deps, codeBlock.code)}
+            aria-label={COPY_LABEL}
+            title={COPY_TITLE}
           >
-            📋 Copy
+            {COPY_BUTTON_TEXT}
           </button>
           <button
             className="spectre-code-action-btn"
-            onClick={async () => {
-              const success = await pasteToEditor({
-                code: codeBlock.code,
-                deps,
-              });
-              const button = document.activeElement as HTMLButtonElement;
-              if (button && success) {
-                const originalHTML = button.innerHTML;
-                button.classList.add('success');
-                button.innerHTML = '✓ Ready to Paste';
-                const timerId = window.setTimeout(() => {
-                  deps.feedbackTimers.delete(timerId);
-                  button.classList.remove('success');
-                  button.innerHTML = originalHTML;
-                }, deps.copyFeedbackDurationMs);
-                deps.feedbackTimers.add(timerId);
-              }
-            }}
-            aria-label="Copy code and focus editor for pasting"
-            title="Copy code and focus editor for pasting"
+            onClick={createPasteHandler(deps, codeBlock.code)}
+            aria-label={PASTE_LABEL}
+            title={PASTE_TITLE}
           >
-            📝 Paste
+            {PASTE_BUTTON_TEXT}
           </button>
         </div>
       </div>
@@ -216,6 +261,14 @@ export function renderSingleCodeBlock(params: {
  * Renders assistant message content with integrated Arduino code blocks.
  */
 export function renderAssistantMessage(params: {
+  deps: CodeBlockRenderingDeps;
+  text: string;
+  isStreaming: boolean;
+}): React.ReactNode {
+  return renderAssistantMessageCore(params);
+}
+
+function renderAssistantMessageCore(params: {
   deps: CodeBlockRenderingDeps;
   text: string;
   isStreaming: boolean;
@@ -256,7 +309,10 @@ export function renderAssistantMessage(params: {
     return <div>{parts}</div>;
   }
 
-  const ReactMarkdown = RenderingHelpers.ReactMarkdownLazy;
+  const ReactMarkdown =
+    RenderingHelpers.ReactMarkdownLazy as
+      | React.ComponentType<{ children?: React.ReactNode }>
+      | null;
   return ReactMarkdown ? (
     <ReactMarkdown>{text}</ReactMarkdown>
   ) : (

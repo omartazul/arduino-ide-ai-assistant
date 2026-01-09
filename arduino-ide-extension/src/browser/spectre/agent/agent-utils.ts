@@ -5,7 +5,6 @@
  * @author Tazul Islam
  */
 
-import { spectreError } from '../../../common/protocol/spectre-types';
 import * as RenderingHelpers from '../ui/message-rendering';
 
 /**
@@ -35,35 +34,23 @@ export interface CleanAgentResponseResult {
 function inferActionTypeFromDescription(description: string): string {
   const d = description.toLowerCase();
 
-  // Sketch
-  if (d.includes('verify') && (d.includes('sketch') || d.includes('compile'))) {
-    return 'verify_sketch';
-  }
-  if ((d.includes('upload') || d.includes('flash')) && d.includes('sketch')) {
-    return 'upload_sketch';
-  }
-  if ((d.includes('create') || d.includes('write') || d.includes('generate')) &&
-      (d.includes('sketch') || d.includes('code'))) {
-    return 'create_sketch';
-  }
+  // Use a list of regular expressions to match intent patterns, which reduces branching
+  // and keeps the logic concise and testable.
+  const rules: { pattern: RegExp; action: string }[] = [
+    { pattern: /\bverify\b.*\b(?:sketch|compile)\b|\b(?:sketch|compile)\b.*\bverify\b/, action: 'verify_sketch' },
+    { pattern: /\b(?:upload|flash)\b.*\bsketch\b|\bsketch\b.*\b(?:upload|flash)\b/, action: 'upload_sketch' },
+    { pattern: /\b(?:create|write|generate)\b.*\b(?:sketch|code)\b|\b(?:sketch|code)\b.*\b(?:create|write|generate)\b/, action: 'create_sketch' },
+    { pattern: /\b(?:select|choose)\b.*\bboard\b|\bboard\b.*\b(?:select|choose)\b/, action: 'select_board' },
+    { pattern: /\bsearch\b.*\bboard\b|\bboard\b.*\bsearch\b/, action: 'search_boards' },
+    { pattern: /\b(?:select|choose)\b.*\bport\b|\bport\b.*\b(?:select|choose)\b/, action: 'select_port' },
+    { pattern: /\binstall\b.*\blibrary\b|\blibrary\b.*\binstall\b/, action: 'install_library' },
+    { pattern: /\buninstall\b.*\blibrary\b|\blibrary\b.*\buninstall\b/, action: 'uninstall_library' },
+  ];
 
-  // Board / port
-  if ((d.includes('select') || d.includes('choose')) && d.includes('board')) {
-    return 'select_board';
-  }
-  if (d.includes('search') && d.includes('board')) {
-    return 'search_boards';
-  }
-  if ((d.includes('select') || d.includes('choose')) && d.includes('port')) {
-    return 'select_port';
-  }
-
-  // Library
-  if (d.includes('install') && d.includes('library')) {
-    return 'install_library';
-  }
-  if (d.includes('uninstall') && d.includes('library')) {
-    return 'uninstall_library';
+  for (const rule of rules) {
+    if (rule.pattern.test(d)) {
+      return rule.action;
+    }
   }
 
   return 'task';
@@ -115,7 +102,7 @@ export async function executeAgentAction(
     logPrefix,
     actionDesc,
     getErrorMessage = formatUnknownError,
-    logError = spectreError,
+    logError = (msg: string, err: unknown) => console.error(msg, err),
     errorHandler,
   } = params;
   try {
@@ -155,7 +142,7 @@ export function parseTasksFromResponse(text: string): AgentTask[] {
         'pending';
 
       // Failure has priority over completed/in-progress when the content indicates failure.
-      if (isFailedCheckbox(checkbox, description)) {
+      if (isFailedCheckbox({ checkbox, description })) {
         status = 'failed';
       } else if (isCompletedCheckbox(checkbox)) {
         status = 'completed';
@@ -183,11 +170,11 @@ function isInProgressCheckbox(checkbox: string): boolean {
   return checkbox === 'o' || checkbox === '~' || checkbox === '⏳';
 }
 
-function isFailedCheckbox(checkbox: string, description: string): boolean {
-  return (
-    checkbox === '!' ||
-    (checkbox === 'x' && description.toLowerCase().includes('failed'))
-  );
+function isFailedCheckbox(args: { checkbox: string; description: string }): boolean {
+  const { checkbox, description } = args;
+  const isExplicitFail = checkbox === '!';
+  const isCheckedButFailed = checkbox === 'x' && description.toLowerCase().includes('failed');
+  return isExplicitFail || isCheckedButFailed;
 }
 
 /**

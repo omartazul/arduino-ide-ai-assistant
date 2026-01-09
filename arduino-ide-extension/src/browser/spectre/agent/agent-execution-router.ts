@@ -5,6 +5,8 @@
  * @author Tazul Islam
  */
 
+import type { AgentActions } from './agent-actions';
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type FunctionCallArgs = Record<string, any>;
 
@@ -40,39 +42,14 @@ async function toSuccessResult(
  */
 export async function executeFunctionCall(
   functionCall: FunctionCall,
-  allHandlers: {
-    // Sketch handlers
-    agentCreateSketch: (name?: string, code?: string) => Promise<string>;
-    agentReadSketch: () => Promise<string>;
-    agentVerifySketch: () => Promise<string>;
-    agentUploadSketch: () => Promise<string>;
-    // Board handlers
-    agentGetBoardsList: () => Promise<string>;
-    agentSelectBoard: (name: string) => Promise<string>;
-    agentSearchBoards: (query: string) => Promise<string>;
-    agentInstallBoard: (platform: string, version?: string) => Promise<string>;
-    agentUninstallBoard: (platform: string) => Promise<string>;
-    agentAddBoardUrl: (url: string) => Promise<string>;
-    agentRemoveBoardUrl: (url: string) => Promise<string>;
-    agentFetchBoardUrls: (query: string) => Promise<string>;
-    agentGetBoardConfig: (fqbn?: string) => Promise<string>;
-    agentSetBoardConfig: (
-      fqbn: string | undefined,
-      options: string
-    ) => Promise<string>;
-    // Port and library handlers
-    agentGetPortsList: () => Promise<string>;
-    agentSelectPort: (address: string) => Promise<string>;
-    agentInstallLibrary: (name: string) => Promise<string>;
-    agentUninstallLibrary: (name: string) => Promise<string>;
-  },
+  allHandlers: AgentActions,
   spectreError: (message: string, error: unknown) => void
 ): Promise<{ success: boolean; result?: string; error?: string }> {
   const { name, args } = functionCall;
 
   const routes: Record<string, () => Promise<string>> = {
     // Sketch
-    create_sketch: () => allHandlers.agentCreateSketch(args.name, args.code),
+    create_sketch: () => allHandlers.agentCreateSketch({ name: args.name, code: args.code }),
     read_sketch: () => allHandlers.agentReadSketch(),
     verify_sketch: () => allHandlers.agentVerifySketch(),
     upload_sketch: () => allHandlers.agentUploadSketch(),
@@ -82,14 +59,14 @@ export async function executeFunctionCall(
     select_board: () => allHandlers.agentSelectBoard(args.name),
     search_boards: () => allHandlers.agentSearchBoards(args.query),
     install_board: () =>
-      allHandlers.agentInstallBoard(args.platform, args.version),
+      allHandlers.agentInstallBoard({ platformId: args.platform, version: args.version }),
     uninstall_board: () => allHandlers.agentUninstallBoard(args.platform),
     add_board_url: () => allHandlers.agentAddBoardUrl(args.url),
     remove_board_url: () => allHandlers.agentRemoveBoardUrl(args.url),
     fetch_board_urls: () => allHandlers.agentFetchBoardUrls(args.query),
     get_board_config: () => allHandlers.agentGetBoardConfig(args.fqbn),
     set_board_config: () =>
-      allHandlers.agentSetBoardConfig(args.fqbn, args.options),
+      allHandlers.agentSetBoardConfig({ fqbn: args.fqbn, options: args.options }),
 
     // Port + library
     get_ports: () => allHandlers.agentGetPortsList(),

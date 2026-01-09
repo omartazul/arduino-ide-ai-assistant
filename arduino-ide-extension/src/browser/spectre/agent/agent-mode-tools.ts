@@ -41,41 +41,53 @@ function rankStatus(status: TaskStatus): number {
   }
 }
 
-function mergeTasksByActionType(params: {
-  existing: AgentTask[] | undefined;
-  incoming: AgentTask[];
-}): AgentTask[] {
-  const { existing, incoming } = params;
-  const existingTasks = existing || [];
-
+function buildActionTypeMap(existingTasks: AgentTask[] | undefined): Map<string, AgentTask> {
   const byActionType = new Map<string, AgentTask>();
-  for (const task of existingTasks) {
+  const list = existingTasks || [];
+  for (const task of list) {
     const key = (task.actionType || '').toLowerCase();
     if (!key || key === 'task') {
       continue;
     }
     byActionType.set(key, task);
   }
+  return byActionType;
+}
+
+function mergeTaskWithPrior(task: AgentTask, prior: AgentTask | undefined): AgentTask {
+  if (!prior) {
+    return task;
+  }
+
+  const chosenStatus =
+    rankStatus(prior.status) >= rankStatus(task.status) ? prior.status : task.status;
+
+  return {
+    ...task,
+    status: chosenStatus,
+    error: prior.error || task.error,
+    startTime: prior.startTime || task.startTime,
+    endTime: prior.endTime || task.endTime,
+  };
+}
+
+function mergeTasksByActionType(params: {
+  existing: AgentTask[] | undefined;
+  incoming: AgentTask[];
+}): AgentTask[] {
+  const { existing, incoming } = params;
+  const byActionType = buildActionTypeMap(existing);
 
   return incoming.map((task) => {
     const key = (task.actionType || '').toLowerCase();
-    const prior = key ? byActionType.get(key) : undefined;
+    if (!key) {
+      return task;
+    }
+    const prior = byActionType.get(key);
     if (!prior) {
       return task;
     }
-
-    const chosenStatus =
-      rankStatus(prior.status) >= rankStatus(task.status)
-        ? prior.status
-        : task.status;
-
-    return {
-      ...task,
-      status: chosenStatus,
-      error: prior.error || task.error,
-      startTime: prior.startTime || task.startTime,
-      endTime: prior.endTime || task.endTime,
-    };
+    return mergeTaskWithPrior(task, prior);
   });
 }
 

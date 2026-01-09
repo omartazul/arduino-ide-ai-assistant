@@ -6,8 +6,11 @@
 
 import { spectreWarn } from '../../../common/protocol/spectre-types';
 
+export type StreamKey = string;
+export type RequestSeq = number;
+
 export interface StreamEvent {
-  key: string;
+  key: StreamKey;
   delta?: string;
   done?: boolean;
   error?: string;
@@ -19,7 +22,7 @@ export interface StreamControllerDeps {
   focusInput: () => void;
   mutateLastAssistant: (
     mutator: (text: string) => string,
-    requestSeq: number
+    requestSeq: RequestSeq
   ) => Promise<void>;
 }
 
@@ -28,8 +31,8 @@ export interface StreamControllerDeps {
  * Intentionally does NOT call AI APIs; it just updates UI state via the provided deps.
  */
 export class StreamController {
-  private currentAbortKey?: string;
-  private currentRequestSeq?: number;
+  private currentAbortKey?: StreamKey;
+  private currentRequestSeq?: RequestSeq;
 
   private streamBuffer = '';
   private streamTicker?: number;
@@ -49,7 +52,7 @@ export class StreamController {
     this.currentRequestSeq = undefined;
   }
 
-  attach(streamKey: string, requestSeq: number): void {
+  attach(streamKey: StreamKey, requestSeq: RequestSeq): void {
     // Reset any previous streaming animation state (clears buffer, timers, and flags)
     this.stop();
 
@@ -99,11 +102,11 @@ export class StreamController {
     }
   }
 
-  private isValidStreamEvent(event: { key: string }): boolean {
+  private isValidStreamEvent(event: { key: StreamKey }): boolean {
     return !!(this.currentAbortKey && event.key === this.currentAbortKey);
   }
 
-  private handleStreamError(error: string, requestSeq: number): void {
+  private handleStreamError(error: string, requestSeq: RequestSeq): void {
     this.stop();
     void this.deps.mutateLastAssistant(
       (prev) => prev + `\n\nError: ${error}`,
@@ -113,13 +116,13 @@ export class StreamController {
     this.deps.focusInput();
   }
 
-  private handleStreamDelta(delta: string, requestSeq: number): void {
+  private handleStreamDelta(delta: string, requestSeq: RequestSeq): void {
     if (!this.streamStarted) this.streamStarted = true;
     this.streamBuffer += delta;
     this.startStreamTicker(requestSeq);
   }
 
-  private handleStreamImmediateCompletion(requestSeq: number): void {
+  private handleStreamImmediateCompletion(requestSeq: RequestSeq): void {
     if (this.streamBuffer.length > 0) {
       const remaining = this.streamBuffer;
       this.streamBuffer = '';
@@ -132,7 +135,7 @@ export class StreamController {
     this.deps.focusInput();
   }
 
-  private handleStreamCompletion(requestSeq: number): void {
+  private handleStreamCompletion(requestSeq: RequestSeq): void {
     if (!this.streamTicker) {
       this.handleStreamImmediateCompletion(requestSeq);
       return;
@@ -168,7 +171,7 @@ export class StreamController {
     }, this.deps.streamFallbackTimeoutMs);
   }
 
-  private startStreamTicker(requestSeq: number): void {
+  private startStreamTicker(requestSeq: RequestSeq): void {
     if (this.streamTicker) return;
     const seq = requestSeq ?? this.currentRequestSeq;
     if (seq === undefined) return;
@@ -189,7 +192,7 @@ export class StreamController {
     }, TICK_MS);
   }
 
-  private shouldAbortStream(seq: number): boolean {
+  private shouldAbortStream(seq: RequestSeq): boolean {
     return seq !== this.currentRequestSeq || !this.currentAbortKey;
   }
 
