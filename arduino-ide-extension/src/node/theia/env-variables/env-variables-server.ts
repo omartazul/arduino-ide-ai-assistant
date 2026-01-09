@@ -71,12 +71,14 @@ export class EnvVariablesServer implements TheiaEnvVariablesServer {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const drivelist = require('drivelist');
         this._drivelistList = drivelist.list.bind(drivelist);
-      }
-      catch (err) {
+      } catch (err) {
         // If the native bindings failed to load, log a warning and fall back so
         // tests and non-native environments behave gracefully.
         // eslint-disable-next-line no-console
-        console.warn('drivelist not available; getDrives() will return empty list', err);
+        console.warn(
+          'drivelist not available; getDrives() will return empty list',
+          err
+        );
         this._drivelistList = async () => [];
       }
     }

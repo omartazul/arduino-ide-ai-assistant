@@ -6,13 +6,17 @@
  */
 
 import { DetectedPort } from '../../../common/protocol';
-import { spectreLog, spectreWarn } from '../../../common/protocol/spectre-types';
+import {
+  spectreLog,
+  spectreWarn,
+} from '../../../common/protocol/spectre-types';
+import { Board, BoardsPackage } from '../../../common/protocol/boards-service';
 
 /**
  * Cached board data for efficient lookups.
  */
 interface CachedBoard {
-  board: any;
+  board: Board;
   normalizedName: string;
   normalizedWords: string[];
   lastUpdated: number;
@@ -22,7 +26,7 @@ interface CachedBoard {
  * Result type for board search operations.
  */
 interface BoardSearchResult {
-  board: any | null;
+  board: Board | null;
   matchType?: 'exact' | 'fuzzy';
 }
 
@@ -44,7 +48,7 @@ export class BoardHelper {
    * Builds board search cache with normalized data.
    * Eliminates repeated string operations by pre-computing normalized forms.
    */
-  static buildBoardCache(boards: any[]): Map<string, CachedBoard> {
+  static buildBoardCache(boards: Board[]): Map<string, CachedBoard> {
     const cache = new Map<string, CachedBoard>();
     const now = Date.now();
 
@@ -154,10 +158,12 @@ export class BoardHelper {
   private static tryExactMatch(
     inputWords: string[],
     cache: Map<string, CachedBoard>
-  ): any | null {
+  ): Board | null {
     for (const cached of cache.values()) {
       const allWordsMatch = inputWords.every((inputWord) =>
-        cached.normalizedWords.some((boardWord) => boardWord.includes(inputWord))
+        cached.normalizedWords.some((boardWord) =>
+          boardWord.includes(inputWord)
+        )
       );
       if (allWordsMatch) {
         return cached.board;
@@ -169,7 +175,7 @@ export class BoardHelper {
   private static tryFuzzyMatch(
     inputWords: string[],
     cache: Map<string, CachedBoard>
-  ): any | null {
+  ): Board | null {
     for (const cached of cache.values()) {
       const allWordsFuzzyMatch = inputWords.every((inputWord) =>
         cached.normalizedWords.some((boardWord) =>
@@ -222,12 +228,12 @@ export class BoardHelper {
   /**
    * Builds lookup maps for platform search results.
    */
-  static buildPlatformLookupMaps(searchResults: any[]): {
-    exactMap: Map<string, any>;
-    caseInsensitiveMap: Map<string, any>;
+  static buildPlatformLookupMaps(searchResults: BoardsPackage[]): {
+    exactMap: Map<string, BoardsPackage>;
+    caseInsensitiveMap: Map<string, BoardsPackage>;
   } {
-    const exactMap = new Map<string, any>();
-    const caseInsensitiveMap = new Map<string, any>();
+    const exactMap = new Map<string, BoardsPackage>();
+    const caseInsensitiveMap = new Map<string, BoardsPackage>();
 
     for (const platform of searchResults) {
       const id = platform.id || '';
@@ -246,19 +252,19 @@ export class BoardHelper {
    */
   static findMatchingPlatform(
     platformId: string,
-    searchResults: any[],
-    exactMap: Map<string, any>,
-    caseInsensitiveMap: Map<string, any>
-  ): any | null {
+    searchResults: BoardsPackage[],
+    exactMap: Map<string, BoardsPackage>,
+    caseInsensitiveMap: Map<string, BoardsPackage>
+  ): BoardsPackage | null {
     // Try exact match
     if (exactMap.has(platformId)) {
-      return exactMap.get(platformId);
+      return exactMap.get(platformId) || null;
     }
 
     // Try case-insensitive
     const lowerPlatformId = platformId.toLowerCase();
     if (caseInsensitiveMap.has(lowerPlatformId)) {
-      return caseInsensitiveMap.get(lowerPlatformId);
+      return caseInsensitiveMap.get(lowerPlatformId) || null;
     }
 
     // Try partial match
@@ -275,7 +281,7 @@ export class BoardHelper {
    */
   static formatPlatformSearchError(
     platformId: string,
-    searchResults: any[]
+    searchResults: BoardsPackage[]
   ): string {
     const suggestions = searchResults
       .slice(0, 5)
@@ -383,9 +389,7 @@ export class BoardHelper {
       return `No board manager URLs found for "${query}".\n\nPlease search the Arduino Wiki manually or provide a specific board manager URL.`;
     }
 
-    const results = matches
-      .map((m) => `- **${m.name}**: ${m.url}`)
-      .join('\n');
+    const results = matches.map((m) => `- **${m.name}**: ${m.url}`).join('\n');
 
     return `Found ${matches.length} board manager URL(s) for "${query}":\n\n${results}\n\nTo add a URL, use: agentAddBoardUrl("url")`;
   }
@@ -395,7 +399,9 @@ export class BoardHelper {
  * Configuration service interface for board URL operations.
  */
 interface ConfigService {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getConfiguration(): Promise<{ config?: any }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   setConfiguration(config: any): Promise<void>;
 }
 
@@ -403,6 +409,7 @@ interface ConfigService {
  * Command service interface for board URL operations.
  */
 interface CommandService {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   executeCommand(command: string, ...args: any[]): Promise<any>;
 }
 
@@ -482,7 +489,9 @@ export class BoardUrlHelper {
       additionalUrls: updatedUrls,
     });
 
-    spectreLog(`✅ Removed ${urlsToRemove.length} board manager URL(s) from preferences`);
+    spectreLog(
+      `✅ Removed ${urlsToRemove.length} board manager URL(s) from preferences`
+    );
 
     // Update package indexes
     spectreLog('🔄 Updating package indexes to reflect changes...');
@@ -505,7 +514,9 @@ export class BoardUrlHelper {
 
     switch (type) {
       case 'noMatch':
-        return `ℹ️ No matching board manager URLs found for: "${params.urlOrName}"
+        return `ℹ️ No matching board manager URLs found for: "${
+          params.urlOrName
+        }"
 
 Current URLs:
 ${params.currentUrls?.map((u, i) => `${i + 1}. ${u}`).join('\n')}
@@ -539,7 +550,9 @@ Remaining URLs: ${params.remainingCount}`;
         if (params.updateResult?.success) {
           message += '\n✅ Package indexes updated successfully';
         } else {
-          message += `\n⚠️ Package index update ${params.updateResult?.error || 'timed out'}`;
+          message += `\n⚠️ Package index update ${
+            params.updateResult?.error || 'timed out'
+          }`;
         }
         return message;
     }

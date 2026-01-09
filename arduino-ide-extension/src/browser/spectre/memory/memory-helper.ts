@@ -6,6 +6,7 @@
  */
 
 import type { ConversationMemory } from './memory-types';
+import type { MemoryManager } from './memory-manager';
 import { spectreError } from '../../../common/protocol/spectre-types';
 
 /**
@@ -16,7 +17,10 @@ export class MemoryHelper {
    * Saves session memory to localStorage for persistence across reloads.
    * Called after each message is added to memory.
    */
-  static saveSessionMemory(sessionId: number, memory: ConversationMemory): void {
+  static saveSessionMemory(
+    sessionId: number,
+    memory: ConversationMemory
+  ): void {
     if (!memory) {
       return;
     }
@@ -41,7 +45,7 @@ export class MemoryHelper {
    */
   static loadSessionMemory(
     sessionId: number,
-    memoryManager: any
+    memoryManager: MemoryManager
   ): ConversationMemory | undefined {
     try {
       const stored = localStorage.getItem(`spectre-memory-${sessionId}`);

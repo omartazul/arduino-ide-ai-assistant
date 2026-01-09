@@ -227,10 +227,23 @@ export class ConfigServiceImpl
     }
 
     const [configRaw, directoriesRaw] = await Promise.all([
-      spawnCommand(cliPath, ['config', 'dump', '--json', '--config-file', cliConfigPath]),
+      spawnCommand(cliPath, [
+        'config',
+        'dump',
+        '--json',
+        '--config-file',
+        cliConfigPath,
+      ]),
       // Since CLI 1.0, the command `config dump` only returns user-modified values and not default ones.
       // directories.user and directories.data are required by IDE2 so we get the default value explicitly.
-      spawnCommand(cliPath, ['config', 'get', 'directories', '--json', '--config-file', cliConfigPath]),
+      spawnCommand(cliPath, [
+        'config',
+        'get',
+        'directories',
+        '--json',
+        '--config-file',
+        cliConfigPath,
+      ]),
     ]);
 
     const config = JSON.parse(configRaw);

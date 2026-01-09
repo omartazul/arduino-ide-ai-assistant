@@ -112,7 +112,10 @@ export class MonitorViewContribution
   /**
    * Determines if the dock panel should be updated based on the preference change event.
    */
-  private shouldUpdateDockPanel(event: { preferenceName: string; newValue: any }): boolean {
+  private shouldUpdateDockPanel(event: {
+    preferenceName: string;
+    newValue: any;
+  }): boolean {
     return (
       event.preferenceName === 'arduino.monitor.dockPanel' &&
       isMonitorWidgetDockPanel(event.newValue) &&
@@ -223,7 +226,10 @@ export class MonitorViewContribution
 
   protected renderAutoScrollButton(): React.ReactNode {
     return this.renderToolbarButton(
-      nls.localize('vscode/output.contribution/toggleAutoScroll', 'Toggle Autoscroll'),
+      nls.localize(
+        'vscode/output.contribution/toggleAutoScroll',
+        'Toggle Autoscroll'
+      ),
       'fa-angle-double-down',
       this.model.autoscroll,
       this.toggleAutoScroll
@@ -252,7 +258,9 @@ export class MonitorViewContribution
     return (
       <div
         title={title}
-        className={`item enabled fa ${iconClass} arduino-monitor${toggled ? ' toggled' : ''}`}
+        className={`item enabled fa ${iconClass} arduino-monitor${
+          toggled ? ' toggled' : ''
+        }`}
         onClick={onClick}
       ></div>
     );

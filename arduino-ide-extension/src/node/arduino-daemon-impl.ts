@@ -178,7 +178,11 @@ export class ArduinoDaemonImpl
       model = {};
     }
 
-    model.directories = { ...(model.directories || {}), data: dataDir, user: userDir };
+    model.directories = {
+      ...(model.directories || {}),
+      data: dataDir,
+      user: userDir,
+    };
     const updated = yaml.safeDump(model, { lineWidth: -1 });
     await fs.writeFile(cliConfigPath, updated, { encoding: 'utf8' });
   }

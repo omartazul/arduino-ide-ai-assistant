@@ -1,17 +1,18 @@
 /**
  * Consolidated Chat Session Manager
- * 
+ *
  * This file consolidates:
  * - session-actions.ts
  * - session-memory-tools.ts (from memory/)
- * 
+ *
  * @author Tazul Islam
  */
 
 import { spectreWarn } from '../../../common/protocol/spectre-types';
 import { CurrentSketch } from '../../sketches-service-client-impl';
 import type { StorageService } from '@theia/core/lib/browser/storage-service';
-import type { ChatSession } from '../ui/widget-rendering';
+import type { ChatSession, ChatMessage } from '../ui/widget-rendering';
+import { AgentTask } from '../agent/agent-utils';
 import type { MemoryManager } from '../memory/memory-manager';
 import type { ConversationMemory, RawMessage } from '../memory/memory-types';
 import { MemoryHelper } from '../memory/memory-helper';
@@ -34,10 +35,30 @@ export interface RequestLog {
   success: boolean;
 }
 
-export interface SessionMemoryToolsState {
-  sessions: Array<{ id: number; messages: any[]; memory?: ConversationMemory }>;
+export interface MemoryStats {
+  recentMessages: number;
+  summaries: number;
+  totalTokens: number;
+  memoryBankTokens: number;
+  compressionRatio: string;
+  isSummarizing: boolean;
+}
+
+export interface ChatManagerState {
+  sessions: ChatSession[];
   active: number;
-  memoryStats?: any;
+  memoryStats?: MemoryStats;
+  requestLogs: RequestLog[];
+  dailyTracker: DailyTracker;
+  sketchKey?: string;
+  error?: string;
+  tasks?: AgentTask[];
+}
+
+export interface SessionMemoryToolsState {
+  sessions: ChatSession[];
+  active: number;
+  memoryStats?: MemoryStats;
 }
 
 export interface SessionMemoryToolsDeps {
@@ -50,7 +71,7 @@ export interface LoadForCurrentSketchDeps {
   sketchesClient: { tryGetCurrentSketch(): CurrentSketch | undefined };
   storage: StorageService;
   getPacificDate: () => string;
-  setStateData: (patch: Partial<any>) => void;
+  setStateData: (patch: Partial<ChatManagerState>) => void;
   updateMemoryStats: () => void;
   migrateSessions: (oldSessions: ChatSession[]) => Promise<ChatSession[]>;
   createSessionWithMemory: (sessionId?: number) => Promise<ChatSession>;
@@ -60,7 +81,9 @@ export interface LoadForCurrentSketchDeps {
 // Session Loading and Storage
 // ============================================================================
 
-export async function loadForCurrentSketch(deps: LoadForCurrentSketchDeps): Promise<void> {
+export async function loadForCurrentSketch(
+  deps: LoadForCurrentSketchDeps
+): Promise<void> {
   const sketch = deps.sketchesClient.tryGetCurrentSketch();
   const key = storageKeyFor(sketch);
 
@@ -74,7 +97,11 @@ export async function loadForCurrentSketch(deps: LoadForCurrentSketchDeps): Prom
     const saved = await deps.storage.getData<ChatSession[]>(key);
     if (Array.isArray(saved)) {
       const migratedSessions = await deps.migrateSessions(saved);
-      deps.setStateData({ sessions: migratedSessions, active: 0, sketchKey: key });
+      deps.setStateData({
+        sessions: migratedSessions,
+        active: 0,
+        sketchKey: key,
+      });
       deps.updateMemoryStats();
       return;
     }
@@ -86,20 +113,27 @@ export async function loadForCurrentSketch(deps: LoadForCurrentSketchDeps): Prom
 }
 
 function storageKeyFor(sketch: CurrentSketch | undefined): string | undefined {
-  return CurrentSketch.isValid(sketch) ? `spectre.chat.${sketch.uri}` : undefined;
+  return CurrentSketch.isValid(sketch)
+    ? `spectre.chat.${sketch.uri}`
+    : undefined;
 }
 
 async function loadTrackingData(deps: {
   storage: StorageService;
   getPacificDate: () => string;
-  setStateData: (patch: Partial<any>) => void;
+  setStateData: (patch: Partial<ChatManagerState>) => void;
 }): Promise<void> {
   try {
-    const savedLogs = (await deps.storage.getData<RequestLog[]>('spectre.requestLogs')) || [];
+    const savedLogs =
+      (await deps.storage.getData<RequestLog[]>('spectre.requestLogs')) || [];
     const sixtySecondsAgo = Date.now() - 60 * 1000;
-    const validLogs = savedLogs.filter((log) => log.timestamp > sixtySecondsAgo);
+    const validLogs = savedLogs.filter(
+      (log) => log.timestamp > sixtySecondsAgo
+    );
 
-    const savedDaily = await deps.storage.getData<DailyTracker>('spectre.dailyTracker');
+    const savedDaily = await deps.storage.getData<DailyTracker>(
+      'spectre.dailyTracker'
+    );
     const currentDate = deps.getPacificDate();
 
     const dailyTracker =
@@ -128,7 +162,7 @@ async function loadTrackingData(deps: {
 export async function newChat(params: {
   createSessionWithMemory: () => Promise<ChatSession>;
   stateData: { sessions: ChatSession[] };
-  setStateData: (patch: Partial<any>) => void;
+  setStateData: (patch: Partial<ChatManagerState>) => void;
   updateMemoryStats: () => void;
   persist: () => void;
 }): Promise<void> {
@@ -148,14 +182,16 @@ export async function newChat(params: {
 export async function clearChat(params: {
   memoryManager: MemoryManager;
   stateData: { sessions: ChatSession[]; active: number };
-  setStateData: (patch: Partial<any>) => void;
+  setStateData: (patch: Partial<ChatManagerState>) => void;
   updateMemoryStats: () => void;
   persist: () => void;
 }): Promise<void> {
   const sessions = params.stateData.sessions.slice();
   const currentSession = sessions[params.stateData.active];
 
-  const newMemory = params.memoryManager.createConversation(currentSession.id.toString());
+  const newMemory = params.memoryManager.createConversation(
+    currentSession.id.toString()
+  );
 
   sessions[params.stateData.active] = {
     ...currentSession,
@@ -172,7 +208,7 @@ export async function clearChat(params: {
 export async function closeChat(params: {
   stateData: { sessions: ChatSession[]; active: number };
   createSessionWithMemory: () => Promise<ChatSession>;
-  setStateData: (patch: Partial<any>) => void;
+  setStateData: (patch: Partial<ChatManagerState>) => void;
   updateMemoryStats: () => void;
   persist: () => void;
 }): Promise<void> {
@@ -196,7 +232,11 @@ export async function closeChat(params: {
 
 export async function migrateSessions(params: {
   deps: SessionMemoryToolsDeps;
-  oldSessions: Array<{ id: number; messages: any[]; memory?: ConversationMemory }>;
+  oldSessions: Array<{
+    id: number;
+    messages: ChatMessage[];
+    memory?: ConversationMemory;
+  }>;
 }): Promise<SessionMemoryToolsState['sessions']> {
   const { deps, oldSessions } = params;
 
@@ -209,6 +249,7 @@ export async function migrateSessions(params: {
     if (persistedMemory) {
       migrated.push({
         ...session,
+        title: 'Restored Session',
         memory: persistedMemory,
       });
       continue;
@@ -216,15 +257,21 @@ export async function migrateSessions(params: {
 
     // Skip if already has memory system (but no persisted version)
     if (session.memory) {
-      migrated.push(session);
+      migrated.push({
+        ...session,
+        title: 'Restored Session',
+      });
       continue;
     }
 
     // Create new memory system for this session
-    const memory = deps.memoryManager.createConversation(session.id.toString(), {
-      maxRecentMessages: 40,
-      memoryBankTokenCap: 100_000,
-    });
+    const memory = deps.memoryManager.createConversation(
+      session.id.toString(),
+      {
+        maxRecentMessages: 40,
+        memoryBankTokenCap: 100_000,
+      }
+    );
 
     // Convert old messages to raw messages in memory
     for (const msg of session.messages) {
@@ -250,6 +297,7 @@ export async function migrateSessions(params: {
 
     migrated.push({
       ...session,
+      title: 'Restored Session',
       memory,
     });
   }
@@ -260,13 +308,19 @@ export async function migrateSessions(params: {
 export async function createSessionWithMemory(params: {
   deps: SessionMemoryToolsDeps;
   sessionId?: number;
-}): Promise<{ id: number; title: string; messages: any[]; memory: ConversationMemory }> {
+}): Promise<{
+  id: number;
+  title: string;
+  messages: ChatMessage[];
+  memory: ConversationMemory;
+}> {
   const { deps, sessionId } = params;
   const id = sessionId || Date.now();
 
   // Try to load existing memory from localStorage
   const existingMemory = loadSessionMemory({ deps, sessionId: id });
-  const memory = existingMemory || deps.memoryManager.createConversation(id.toString());
+  const memory =
+    existingMemory || deps.memoryManager.createConversation(id.toString());
 
   return {
     id,
@@ -276,7 +330,10 @@ export async function createSessionWithMemory(params: {
   };
 }
 
-export function saveSessionMemory(params: { deps: SessionMemoryToolsDeps; sessionId: number }): void {
+export function saveSessionMemory(params: {
+  deps: SessionMemoryToolsDeps;
+  sessionId: number;
+}): void {
   const { deps, sessionId } = params;
   const state = deps.getStateData();
   const session = state.sessions.find((s) => s.id === sessionId);
@@ -290,10 +347,15 @@ export function loadSessionMemory(params: {
   deps: Pick<SessionMemoryToolsDeps, 'memoryManager'>;
   sessionId: number;
 }): ConversationMemory | undefined {
-  return MemoryHelper.loadSessionMemory(params.sessionId, params.deps.memoryManager);
+  return MemoryHelper.loadSessionMemory(
+    params.sessionId,
+    params.deps.memoryManager
+  );
 }
 
-export function updateMemoryStats(params: { deps: SessionMemoryToolsDeps }): void {
+export function updateMemoryStats(params: {
+  deps: SessionMemoryToolsDeps;
+}): void {
   const { deps } = params;
   const state = deps.getStateData();
   const session = state.sessions[state.active];
@@ -323,18 +385,24 @@ export async function performAsyncSummarization(params: {
 
   // Show summarization indicator
   const current = deps.getStateData();
-  deps.setStateData({
-    memoryStats: {
-      ...current.memoryStats,
-      isSummarizing: true,
-    } as any,
-  });
+  if (current.memoryStats) {
+    deps.setStateData({
+      memoryStats: {
+        ...current.memoryStats,
+        isSummarizing: true,
+      },
+    });
+  }
 
   try {
     // This will trigger summarization if thresholds are met
     const lastMessage = memory.recentMessages[memory.recentMessages.length - 1];
     if (lastMessage) {
-      await deps.memoryManager.addMessage(memory, lastMessage.role, lastMessage.text);
+      await deps.memoryManager.addMessage(
+        memory,
+        lastMessage.role,
+        lastMessage.text
+      );
     }
   } finally {
     updateMemoryStats({ deps });

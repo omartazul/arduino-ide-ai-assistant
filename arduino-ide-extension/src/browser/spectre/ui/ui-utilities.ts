@@ -10,7 +10,10 @@
  */
 
 import type { SpectreAiService } from '../../../common/protocol/spectre-ai-service';
-import { spectreError, spectreWarn } from '../../../common/protocol/spectre-types';
+import {
+  spectreError,
+  spectreWarn,
+} from '../../../common/protocol/spectre-types';
 import { UIHelper } from './ui-helper';
 
 // ============================================================================
@@ -87,10 +90,12 @@ export function extractExplicitCodeBlocks(text: string): CodeBlock[] {
 }
 
 // Matches only Arduino-ish fenced blocks for suppression purposes.
-export const ARDUINO_FENCED_BLOCK_REGEX = /```(?:cpp|c|arduino|ino)\n([\s\S]*?)\n```/gi;
+export const ARDUINO_FENCED_BLOCK_REGEX =
+  /```(?:cpp|c|arduino|ino)\n([\s\S]*?)\n```/gi;
 
 // Looser matcher used when splitting text around fenced blocks.
-export const ANY_FENCED_BLOCK_SPLIT_REGEX = /```(?:cpp|c|arduino|ino)?\n?([\s\S]*?)\n?```/g;
+export const ANY_FENCED_BLOCK_SPLIT_REGEX =
+  /```(?:cpp|c|arduino|ino)?\n?([\s\S]*?)\n?```/g;
 
 // ============================================================================
 // Clock Management
@@ -123,11 +128,17 @@ export function restartClock(params: {
 
     const sixtySecondsAgo = now - 60 * 1000;
     const originalLogCount = stateData.requestLogs.length;
-    stateData.requestLogs = stateData.requestLogs.filter((log) => log.timestamp > sixtySecondsAgo);
+    stateData.requestLogs = stateData.requestLogs.filter(
+      (log) => log.timestamp > sixtySecondsAgo
+    );
 
     const currentDate = params.getPacificDate();
     if (stateData.dailyTracker.date !== currentDate) {
-      stateData.dailyTracker = { date: currentDate, requestCount: 0, tokenCount: 0 };
+      stateData.dailyTracker = {
+        date: currentDate,
+        requestCount: 0,
+        tokenCount: 0,
+      };
       params.persistTrackingData();
     }
 
@@ -222,7 +233,10 @@ export async function showInlineDiff(
     () => null
   );
 
-  const { decorations, contentWidgets } = UIHelper.computeDiffElements(oldLines, newLines);
+  const { decorations, contentWidgets } = UIHelper.computeDiffElements(
+    oldLines,
+    newLines
+  );
   const decorationIds = control.deltaDecorations([], decorations);
   const zoneIds = UIHelper.createViewZones(control, contentWidgets);
 

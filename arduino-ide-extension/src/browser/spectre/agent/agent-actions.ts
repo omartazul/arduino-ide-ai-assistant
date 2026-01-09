@@ -4,13 +4,24 @@
  * @author Tazul Islam
  */
 
-import { spectreError, spectreWarn, SKETCH_CONSTANTS, type ValidationResult } from '../../../common/protocol/spectre-types';
-import { CurrentSketch } from '../../sketches-service-client-impl';
+import {
+  spectreError,
+  spectreWarn,
+  SKETCH_CONSTANTS,
+  type ValidationResult,
+} from '../../../common/protocol/spectre-types';
+import { CurrentSketch, SketchesServiceClientImpl } from '../../sketches-service-client-impl';
+import {
+  Sketch,
+} from '../../../common/protocol/sketches-service';
+import { BoardsService } from '../../../common/protocol/boards-service';
+import { LibraryService } from '../../../common/protocol/library-service';
 import * as SketchOperations from './sketch-operations';
 import * as UploadTools from './upload-tools';
 import * as AgentTools from './agent-tools';
 import * as PlatformTools from './platform-tools';
 import * as BoardTools from './board-tools';
+import { executeAgentAction } from './agent-utils';
 import * as UiUtilities from '../ui/ui-utilities';
 import { UploadHelper } from '../feature/upload-helper';
 
@@ -30,20 +41,33 @@ export interface AgentActionsTiming {
 }
 
 export interface AgentActionsDeps {
-  sketchesClient: any;
+  sketchesClient: SketchesServiceClientImpl;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   commands: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   editorManager: any;
-  outputChannels: any;
+  outputChannels: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getChannel(name: string): any;
+    contentOfChannel?(name: string): Promise<string | undefined>;
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   boardsServiceProvider: any;
-  boardsService: any;
+  boardsService: BoardsService;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   boardsDataStore: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   monitorManagerProxy: any;
-  libraryService: any;
+  libraryService: LibraryService;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   configService: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   decorationTimers: any;
 
   getErrorMessage: (error: unknown) => string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getBoardSearchCache: () => any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   setBoardSearchCache: (cache: any) => void;
 
   timing: AgentActionsTiming;
@@ -63,7 +87,10 @@ export function createAgentActions(deps: AgentActionsDeps): {
   agentRemoveBoardUrl: (urlOrName: string) => Promise<string>;
   agentFetchBoardUrls: (query: string) => Promise<string>;
   agentGetBoardConfig: (fqbn?: string) => Promise<string>;
-  agentSetBoardConfig: (fqbn: string | undefined, options: string) => Promise<string>;
+  agentSetBoardConfig: (
+    fqbn: string | undefined,
+    options: string
+  ) => Promise<string>;
   agentGetPortsList: () => Promise<string>;
   agentSelectPort: (port: string) => Promise<string>;
   agentInstallLibrary: (name: string) => Promise<string>;
@@ -73,53 +100,16 @@ export function createAgentActions(deps: AgentActionsDeps): {
     await new Promise<void>((resolve) => setTimeout(resolve, ms));
   };
 
-  const tryModernChannelApi = async (): Promise<string | null> => {
-    try {
-      const managerAny = deps.outputChannels as any;
-      if (typeof managerAny.contentOfChannel === 'function') {
-        return (await managerAny.contentOfChannel('Arduino')) || '';
-      }
-    } catch {
-      // Fallback to direct channel access
-    }
-    return null;
-  };
-
-  const extractChannelText = (outputChannel: any): string => {
-    try {
-      if ('getText' in outputChannel) {
-        return outputChannel.getText();
-      }
-      if ('text' in outputChannel) {
-        return outputChannel.text;
-      }
-      if ('append' in outputChannel && 'clear' in outputChannel) {
-        if (outputChannel._lines) {
-          return outputChannel._lines.join('\n');
-        }
-        if (outputChannel.document?.getText) {
-          return outputChannel.document.getText();
-        }
-      }
-    } catch (err) {
-      spectreWarn('Failed to read output channel:', err);
-    }
-    return '';
-  };
-
   const readArduinoOutputChannel = async (): Promise<string> => {
-    const modernResult = await tryModernChannelApi();
-    if (modernResult !== null) {
-      return modernResult;
-    }
-
-    const outputChannel = deps.outputChannels.getChannel('Arduino');
-    if (!outputChannel) {
-      spectreWarn('Arduino output channel not found');
+    try {
+      // Ensure the channel/resource exists before reading it.
+      deps.outputChannels.getChannel('Arduino');
+      const content = await deps.outputChannels.contentOfChannel?.('Arduino');
+      return content || '';
+    } catch (err) {
+      spectreWarn('Failed to read Arduino output channel:', err);
       return '';
     }
-
-    return extractChannelText(outputChannel);
   };
 
   const checkCompilationErrors = async (): Promise<string | null> => {
@@ -127,29 +117,23 @@ export function createAgentActions(deps: AgentActionsDeps): {
       const content = await readArduinoOutputChannel();
       if (!content) return null;
       const lines = content.split('\n');
-      const recentLines = lines.slice(-SKETCH_CONSTANTS.RECENT_OUTPUT_LINE_COUNT);
+      const recentLines = lines.slice(
+        -SKETCH_CONSTANTS.RECENT_OUTPUT_LINE_COUNT
+      );
 
-      const uploadErrorLines = UploadHelper.scanForUploadErrors(recentLines);
-      const compilationErrorLines = UploadHelper.scanForCompilationErrors(recentLines);
-
-      if (uploadErrorLines.length > 0) {
-        return uploadErrorLines.join('\n');
-      }
-
-      if (compilationErrorLines.length > 0) {
-        return compilationErrorLines.join('\n');
-      }
-
-      const potentialErrors = UploadHelper.findPotentialErrors(recentLines);
-      if (potentialErrors.length > 0) {
-        return potentialErrors.join('\n');
-      }
-
-      return null;
+      return UploadHelper.extractFirstError(recentLines);
     } catch (error) {
       spectreWarn('Failed to check compilation errors:', error);
       return null;
     }
+  };
+
+  const getValidCurrentSketch = async (): Promise<Sketch> => {
+    const sketch = await deps.sketchesClient.currentSketch();
+    if (!CurrentSketch.isValid(sketch)) {
+      throw new Error('No valid sketch is currently open');
+    }
+    return sketch;
   };
 
   const validateBoardAndPort = (requirePort = false): ValidationResult => {
@@ -180,202 +164,265 @@ export function createAgentActions(deps: AgentActionsDeps): {
     };
   };
 
-  const agentModifySketch = async (filePath: string, content: string): Promise<string> => {
+  const showInlineDiff = async (
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    uri: any,
+    path: string,
+    oldCode: string,
+    newCode: string
+  ) => {
+    await UiUtilities.showInlineDiff(
+      {
+        editorManager: deps.editorManager,
+        decorationTimers: deps.decorationTimers,
+        timing: {
+          DECORATION_AUTO_REMOVE: deps.timing.DECORATION_AUTO_REMOVE,
+        },
+      },
+      {
+        uri,
+        oldCode,
+        newCode,
+      }
+    );
+  };
+
+  const agentModifySketch = async (
+    filePath: string,
+    content: string
+  ): Promise<string> => {
     return await SketchOperations.agentModifySketch(
       {
-        delay,
+        sketchesClient: {
+            currentSketch: async () => {
+              const sketch = await deps.sketchesClient.currentSketch();
+              if (CurrentSketch.isValid(sketch)) {
+                return sketch;
+              }
+              throw new Error('No valid sketch is currently open');
+            },
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        commands: deps.commands,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         editorManager: deps.editorManager,
+        delay,
         timing: {
           SKETCH_SAVE_DELAY: deps.timing.SKETCH_SAVE_DELAY,
           SERVICE_READY_WAIT: deps.timing.SERVICE_READY_WAIT,
           PORT_SELECTION_DELAY: deps.timing.PORT_SELECTION_DELAY,
+          AGENT_ERROR_DELAY: deps.timing.AGENT_ERROR_DELAY,
         },
-        showInlineDiff: async (uri: any, path: string, oldCode: string, newCode: string) => {
-          await UiUtilities.showInlineDiff(
-            {
-              editorManager: deps.editorManager,
-              decorationTimers: deps.decorationTimers,
-              timing: { DECORATION_AUTO_REMOVE: deps.timing.DECORATION_AUTO_REMOVE },
-            },
-            {
-              uri,
-              oldCode,
-              newCode,
-            }
-          );
-        },
+        showInlineDiff,
         getErrorMessage: deps.getErrorMessage,
-        logError: (message: string, error: unknown) => spectreError(message, error),
+        logError: (message: string, error: unknown) =>
+          spectreError(message, error),
+        agentModifySketch, // Recursive reference
       },
       filePath,
       content
     );
   };
 
+  const sketchOpsDeps = () => ({
+    sketchesClient: {
+      currentSketch: async () => {
+        const sketch = await deps.sketchesClient.currentSketch();
+        if (CurrentSketch.isValid(sketch)) {
+          return sketch;
+        }
+        throw new Error('No valid sketch is currently open');
+      },
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    commands: deps.commands,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    editorManager: deps.editorManager,
+    delay,
+    timing: { 
+      AGENT_ERROR_DELAY: deps.timing.AGENT_ERROR_DELAY,
+      SKETCH_SAVE_DELAY: deps.timing.SKETCH_SAVE_DELAY,
+      SERVICE_READY_WAIT: deps.timing.SERVICE_READY_WAIT,
+      PORT_SELECTION_DELAY: deps.timing.PORT_SELECTION_DELAY,
+    },
+    agentModifySketch,
+    showInlineDiff,
+    getErrorMessage: deps.getErrorMessage,
+    logError: (message: string, error: unknown) =>
+      spectreError(message, error),
+  });
+
+  const libraryDeps = () => ({
+    libraryService: deps.libraryService,
+    outputChannels: deps.outputChannels,
+  });
+
+  const packageIndexDeps = () => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    commands: deps.commands,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    boardsService: deps.boardsService as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    configService: deps.configService,
+    delay,
+    timing: {
+      PACKAGE_INDEX_POLL_INTERVAL: deps.timing.PACKAGE_INDEX_POLL_INTERVAL,
+    },
+  });
+
   const boardDeps = () => ({
     delay,
     timing: { BOARD_SELECTION_DELAY: deps.timing.BOARD_SELECTION_DELAY },
     getErrorMessage: deps.getErrorMessage,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     boardsServiceProvider: deps.boardsServiceProvider as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     boardsService: deps.boardsService as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     boardsDataStore: deps.boardsDataStore as any,
     getBoardSearchCache: deps.getBoardSearchCache,
     setBoardSearchCache: deps.setBoardSearchCache,
   });
 
+  const platformDeps = () => ({
+    boardsService: deps.boardsService,
+    outputChannels: deps.outputChannels,
+  });
+
+  const platformSearchDeps = () => ({
+    boardsService: deps.boardsService,
+  });
+
   return {
-    agentCreateSketch: async (name?: string, code?: string): Promise<string> => {
+    agentCreateSketch: async (
+      name?: string,
+      code?: string
+    ): Promise<string> => {
       return await SketchOperations.agentCreateSketch(
-        {
-          sketchesClient: deps.sketchesClient,
-          commands: deps.commands,
-          editorManager: deps.editorManager,
-          delay,
-          timing: { AGENT_ERROR_DELAY: deps.timing.AGENT_ERROR_DELAY },
-          agentModifySketch,
-        },
+        sketchOpsDeps(),
         name,
         code
       );
     },
 
     agentReadSketch: async (): Promise<string> => {
-      return SketchOperations.agentReadSketch({
-        sketchesClient: deps.sketchesClient,
-        commands: deps.commands,
-        editorManager: deps.editorManager,
-        delay,
-        timing: { AGENT_ERROR_DELAY: deps.timing.AGENT_ERROR_DELAY },
-        agentModifySketch,
-      });
+      return SketchOperations.agentReadSketch(sketchOpsDeps());
     },
 
     agentVerifySketch: async (): Promise<string> => {
-      await delay(deps.timing.SKETCH_SAVE_DELAY);
+      return executeAgentAction(
+        {
+          logPrefix: 'Sketch verification',
+          actionDesc: 'verify sketch',
+          getErrorMessage: deps.getErrorMessage,
+        },
+        async () => {
+          await delay(deps.timing.SKETCH_SAVE_DELAY);
 
-      const sketch = await deps.sketchesClient.currentSketch();
-      if (!CurrentSketch.isValid(sketch)) {
-        throw new Error('No valid sketch is currently open');
-      }
+          const sketch = await getValidCurrentSketch();
 
-      const validation = validateBoardAndPort(false);
-      if (!validation.valid) {
-        throw new Error(validation.message!);
-      }
+          const validation = validateBoardAndPort(false);
+          if (!validation.valid) {
+            throw new Error(validation.message || 'Validation failed');
+          }
 
-      await deps.commands.executeCommand('arduino-verify-sketch');
-      await delay(deps.timing.COMPILATION_TIMEOUT);
+          await deps.commands.executeCommand('arduino-verify-sketch');
+          await delay(deps.timing.COMPILATION_TIMEOUT);
 
-      let verificationErrors = await checkCompilationErrors();
-      if (!verificationErrors) {
-        await delay(deps.timing.UPLOAD_PREPARATION_DELAY);
-        verificationErrors = await checkCompilationErrors();
-      }
+          let verificationErrors = await checkCompilationErrors();
+          if (!verificationErrors) {
+            await delay(deps.timing.UPLOAD_PREPARATION_DELAY);
+            verificationErrors = await checkCompilationErrors();
+          }
 
-      if (verificationErrors) {
-        throw new Error(
-          `Sketch verification failed with errors:\n\n${verificationErrors}\n\n⚠️ Please fix these compilation errors before proceeding.`
-        );
-      }
+          if (verificationErrors) {
+            throw new Error(
+              `Sketch verification failed with errors:\n\n${verificationErrors}\n\n⚠️ Please fix these compilation errors before proceeding.`
+            );
+          }
 
-      return `✅ Sketch verification completed successfully for: ${sketch.name}`;
+          return `✅ Sketch verification completed successfully for: ${sketch.name}`;
+        }
+      );
     },
 
     agentUploadSketch: async (): Promise<string> => {
-      return await UploadTools.agentUploadSketch({
-        delay,
-        timing: {
-          COMPILATION_TIMEOUT: deps.timing.COMPILATION_TIMEOUT,
-          UPLOAD_START_DELAY: deps.timing.UPLOAD_START_DELAY,
-          COMPILATION_CHECK_DELAY: deps.timing.COMPILATION_CHECK_DELAY,
-          UPLOAD_PROCESS_DELAY: deps.timing.UPLOAD_PROCESS_DELAY,
-          SKETCH_SAVE_DELAY: deps.timing.SKETCH_SAVE_DELAY,
+      return executeAgentAction(
+        {
+          logPrefix: 'Upload',
+          actionDesc: 'upload sketch',
+          getErrorMessage: deps.getErrorMessage,
         },
-        readArduinoOutputChannel,
-        commands: deps.commands,
-        sketchesClient: deps.sketchesClient,
-        validateBoardAndPort,
-        boardsServiceProvider: deps.boardsServiceProvider,
-        monitorManagerProxy: deps.monitorManagerProxy,
-      });
+        async () => {
+          return await UploadTools.agentUploadSketch({
+            delay,
+            timing: {
+              COMPILATION_TIMEOUT: deps.timing.COMPILATION_TIMEOUT,
+              UPLOAD_START_DELAY: deps.timing.UPLOAD_START_DELAY,
+              COMPILATION_CHECK_DELAY: deps.timing.COMPILATION_CHECK_DELAY,
+              UPLOAD_PROCESS_DELAY: deps.timing.UPLOAD_PROCESS_DELAY,
+              SKETCH_SAVE_DELAY: deps.timing.SKETCH_SAVE_DELAY,
+            },
+            readArduinoOutputChannel,
+            commands: deps.commands,
+            sketchesClient: {
+              currentSketch: async () => {
+                const sketch = await deps.sketchesClient.currentSketch();
+                if (CurrentSketch.isValid(sketch)) {
+                  return sketch;
+                }
+                throw new Error('No valid sketch is currently open');
+              },
+            },
+            validateBoardAndPort,
+            boardsServiceProvider: deps.boardsServiceProvider,
+            monitorManagerProxy: deps.monitorManagerProxy,
+          });
+        }
+      );
     },
 
     agentInstallLibrary: async (name: string): Promise<string> => {
-      return await AgentTools.agentInstallLibrary(
-        {
-          libraryService: deps.libraryService,
-          outputChannels: deps.outputChannels,
-        },
-        name
-      );
+      return await AgentTools.agentInstallLibrary(libraryDeps(), name);
     },
 
     agentUninstallLibrary: async (name: string): Promise<string> => {
-      return await AgentTools.agentUninstallLibrary(
-        {
-          libraryService: deps.libraryService,
-          outputChannels: deps.outputChannels,
-        },
-        name
-      );
+      return await AgentTools.agentUninstallLibrary(libraryDeps(), name);
     },
 
     agentAddBoardUrl: async (url: string): Promise<string> => {
-      return await AgentTools.agentAddBoardUrl(
-        {
-          commands: deps.commands,
-          boardsService: deps.boardsService,
-          configService: deps.configService,
-          delay,
-          timing: { PACKAGE_INDEX_POLL_INTERVAL: deps.timing.PACKAGE_INDEX_POLL_INTERVAL },
-        },
-        url
-      );
+      return await AgentTools.agentAddBoardUrl(packageIndexDeps(), url);
     },
 
     agentRemoveBoardUrl: async (urlOrName: string): Promise<string> => {
       return await AgentTools.agentRemoveBoardUrl(
-        {
-          commands: deps.commands,
-          boardsService: deps.boardsService,
-          configService: deps.configService,
-          delay,
-          timing: { PACKAGE_INDEX_POLL_INTERVAL: deps.timing.PACKAGE_INDEX_POLL_INTERVAL },
-        },
+        packageIndexDeps(),
         urlOrName
       );
     },
 
     agentFetchBoardUrls: async (query: string): Promise<string> => {
-      return await AgentTools.agentFetchBoardUrls({}, query);
+      return await AgentTools.agentFetchBoardUrls(packageIndexDeps(), query);
     },
 
-    agentInstallBoard: async (platformId: string, version?: string): Promise<string> => {
+    agentInstallBoard: async (
+      platformId: string,
+      version?: string
+    ): Promise<string> => {
       return await PlatformTools.agentInstallBoard(
-        {
-          boardsService: deps.boardsService,
-          outputChannels: deps.outputChannels,
-        },
+        platformDeps(),
         platformId,
         version
       );
     },
 
     agentSearchBoards: async (query: string): Promise<string> => {
-      return await PlatformTools.agentSearchBoards(
-        {
-          boardsService: deps.boardsService,
-        },
-        query
-      );
+      return await PlatformTools.agentSearchBoards(platformSearchDeps(), query);
     },
 
     agentUninstallBoard: async (platformId: string): Promise<string> => {
       return await PlatformTools.agentUninstallBoard(
-        {
-          boardsService: deps.boardsService,
-          outputChannels: deps.outputChannels,
-        },
+        platformDeps(),
         platformId
       );
     },
@@ -400,7 +447,10 @@ export function createAgentActions(deps: AgentActionsDeps): {
       return await BoardTools.agentGetBoardConfig(boardDeps(), fqbn);
     },
 
-    agentSetBoardConfig: async (fqbn: string | undefined, options: string): Promise<string> => {
+    agentSetBoardConfig: async (
+      fqbn: string | undefined,
+      options: string
+    ): Promise<string> => {
       return await BoardTools.agentSetBoardConfig(boardDeps(), fqbn, options);
     },
   };

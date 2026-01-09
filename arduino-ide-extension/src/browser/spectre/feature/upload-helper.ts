@@ -1,9 +1,9 @@
 /**
  * Helper utilities for upload and compilation operations in agent mode.
  * Handles upload retries, error analysis, and compilation error detection.
- * 
+ *
  * CODESCENE WARNINGS (Acceptable):
- * 
+ *
  * 1. "String Heavy Function Arguments":
  *    Methods like checkCompilationError(errLower: string, errText: string) use 2 strings
  *    with distinct purposes:
@@ -13,14 +13,14 @@
  *
  *    - errText: original text for error display
  *    This avoids repeated toLowerCase() calls and is more efficient than a parameter object.
- * 
+ *
  * 2. "Primitive Obsession":
  *    This is a utility module with pattern matching and analysis functions. Using primitives
  *    (strings, booleans) is appropriate for:
  *    - scanLinesForErrors(lines: string[], patterns: RegExp[]) - array utilities
  *    - categorizeLine(line: string) - single string classification
  *    - analyzeUploadOutput(diff: string) - text analysis
- *    
+ *
  *    Parameter objects would add boilerplate without improving clarity or type safety.
  *    The code uses TypeScript interfaces (CategorizedUploadOutput, UploadAnalysisResult)
  *    for complex return types, which is the right balance.
@@ -166,6 +166,14 @@ interface UploadAnalysisResult {
   success: boolean;
   error?: string;
   shouldRetry?: boolean;
+}
+
+/**
+ * Context for error checking strategy.
+ */
+interface ErrorCheckContext {
+  text: string;
+  lower: string;
 }
 
 /**
@@ -345,7 +353,9 @@ export class UploadHelper {
     if (categorized.criticalErrors.length > 0) {
       return {
         success: false,
-        error: `Compilation failed:\n${categorized.criticalErrors.slice(0, 3).join('\n')}`,
+        error: `Compilation failed:\n${categorized.criticalErrors
+          .slice(0, 3)
+          .join('\n')}`,
         shouldRetry: false,
       };
     }
@@ -363,7 +373,9 @@ export class UploadHelper {
     if (categorized.uploadErrors.length > 0) {
       return {
         success: false,
-        error: `Upload failed:\n${categorized.uploadErrors.slice(0, 3).join('\n')}`,
+        error: `Upload failed:\n${categorized.uploadErrors
+          .slice(0, 3)
+          .join('\n')}`,
         shouldRetry: false,
       };
     }
@@ -404,66 +416,108 @@ export class UploadHelper {
    * Formats upload error with specific guidance based on error type.
    */
   static formatUploadError(errText: string): Error {
-    const errLower = errText.toLowerCase();
+    const context: ErrorCheckContext = {
+      text: errText,
+      lower: errText.toLowerCase(),
+    };
 
     // Common Arduino IDE/CLI upload failures
-    if (errLower.includes('not in sync')) {
+    if (context.lower.includes('not in sync')) {
       return new Error(
         `Upload failed - board not responding. Try:\n1. Reset the board\n2. Try a different USB cable\n3. Select a different port\n\nError: ${errText}`
       );
     }
 
-    if (errLower.includes('permission denied') || errLower.includes('access')) {
+    if (
+      context.lower.includes('permission denied') ||
+      context.lower.includes('access')
+    ) {
       return new Error(
         `Permission denied - port may be in use. Try:\n1. Close Serial Monitor\n2. Disconnect other programs\n3. Try a different port\n\nError: ${errText}`
       );
     }
 
     // Check for compilation errors
-    const compilationError = UploadHelper.checkCompilationError(errLower, errText);
+    const compilationError = UploadHelper.checkCompilationError(context);
     if (compilationError) return compilationError;
 
     // Check for size errors
-    const sizeError = UploadHelper.checkSizeError(errLower, errText);
+    const sizeError = UploadHelper.checkSizeError(context);
     if (sizeError) return sizeError;
 
     // Check for programmer errors
-    const programmerError = UploadHelper.checkProgrammerError(errLower, errText);
+    const programmerError = UploadHelper.checkProgrammerError(context);
     if (programmerError) return programmerError;
 
     // Generic upload error
     return new Error(`Upload failed:\n${errText}`);
   }
 
-  static checkCompilationError(errLower: string, errText: string): Error | null {
+  static checkCompilationError(context: ErrorCheckContext): Error | null {
     const hasCompilationError =
-      errLower.includes('compilation') ||
-      errLower.includes('undefined reference') ||
-      errLower.includes('was not declared');
+      context.lower.includes('compilation') ||
+      context.lower.includes('undefined reference') ||
+      context.lower.includes('was not declared');
 
     if (hasCompilationError) {
       return new Error(
-        `Compilation error - fix the code first:\n${errText.substring(0, 500)}`
+        `Compilation error - fix the code first:\n${context.text.substring(
+          0,
+          500
+        )}`
       );
     }
     return null;
   }
 
-  static checkSizeError(errLower: string, errText: string): Error | null {
-    if (errLower.includes('sketch too big') || errLower.includes('overflowed')) {
+  static checkSizeError(context: ErrorCheckContext): Error | null {
+    if (
+      context.lower.includes('sketch too big') ||
+      context.lower.includes('overflowed')
+    ) {
       return new Error(
-        `Sketch is too large for the selected board:\n${errText.substring(0, 300)}`
+        `Sketch is too large for the selected board:\n${context.text.substring(
+          0,
+          300
+        )}`
       );
     }
     return null;
   }
 
-  static checkProgrammerError(errLower: string, errText: string): Error | null {
-    if (errLower.includes('programmer')) {
+  static checkProgrammerError(context: ErrorCheckContext): Error | null {
+    if (context.lower.includes('programmer')) {
       return new Error(
-        `Programmer/bootloader error - check board and connections:\n${errText.substring(0, 300)}`
+        `Programmer/bootloader error - check board and connections:\n${context.text.substring(
+          0,
+          300
+        )}`
       );
     }
+    return null;
+  }
+
+  /**
+   * Scans lines for various error types and returns the first found error group.
+   * Priority: Upload Error > Compilation Error > Potential Error
+   */
+  static extractFirstError(recentLines: string[]): string | null {
+    const uploadErrorLines = UploadHelper.scanForUploadErrors(recentLines);
+    if (uploadErrorLines.length > 0) {
+      return uploadErrorLines.join('\n');
+    }
+
+    const compilationErrorLines =
+      UploadHelper.scanForCompilationErrors(recentLines);
+    if (compilationErrorLines.length > 0) {
+      return compilationErrorLines.join('\n');
+    }
+
+    const potentialErrors = UploadHelper.findPotentialErrors(recentLines);
+    if (potentialErrors.length > 0) {
+      return potentialErrors.join('\n');
+    }
+
     return null;
   }
 }

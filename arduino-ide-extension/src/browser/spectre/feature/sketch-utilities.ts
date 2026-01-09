@@ -9,11 +9,28 @@ import { URI } from '@theia/core/lib/common/uri';
 import { spectreWarn } from '../../../common/protocol/spectre-types';
 import { CurrentSketch } from '../../sketches-service-client-impl';
 import { UIHelper } from '../ui/ui-helper';
-import { addAdditionalSketchFiles, addMainSketchFile, collectOpenArduinoFiles } from '../agent/sketch-operations';
 
 // ============================================================================
 // Types and Interfaces
 // ============================================================================
+
+interface MonacoEditor {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  uri: any;
+  document: {
+    getText: () => string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    uri: any;
+  };
+}
+
+interface EditorWidget {
+  editor: MonacoEditor;
+}
+
+interface EditorManager {
+  all: EditorWidget[];
+}
 
 export interface SketchFile {
   path: string;
@@ -36,9 +53,91 @@ export function buildSketchContext(sketchFiles: SketchFile[]): string {
   return sketchFiles
     .map(
       (file) =>
-        `**${file.path}:**\n\`\`\`${UIHelper.getFileLanguage(file.path)}\n${file.content}\n\`\`\``
+        `**${file.path}:**\n\`\`\`${UIHelper.getFileLanguage(file.path)}\n${
+          file.content
+        }\n\`\`\``
     )
     .join('\n\n');
+}
+
+// ============================================================================
+// URI Matching Utilities
+// ============================================================================
+
+/**
+ * Checks if a file extension is an Arduino file type.
+ */
+export function isArduinoFileExtension(ext: string): boolean {
+  return ext === '.ino' || ext === '.cpp' || ext === '.h' || ext === '.c';
+}
+
+/**
+ * Case-insensitive filename comparison.
+ */
+export function fileNamesMatch(fileName1: string, fileName2: string): boolean {
+  return fileName1.toLowerCase() === fileName2.toLowerCase();
+}
+
+/**
+ * Checks if two URIs match after decoding.
+ */
+export function matchDecodedUris(
+  mainFileUri: string,
+  editorUriStr: string
+): boolean {
+  try {
+    const decodedMainUri = decodeURIComponent(mainFileUri);
+    const decodedEditorUri = decodeURIComponent(editorUriStr);
+
+    if (decodedMainUri === decodedEditorUri) return true;
+
+    const mainPath = new URI(decodedMainUri).path.toString();
+    const editorPath = new URI(decodedEditorUri).path.toString();
+    return mainPath === editorPath;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Checks if the given editor/URI context represents the main sketch file.
+ */
+export function isMainFile(params: {
+  editorUriStr: string;
+  editorUri: URI;
+  mainFileUri: string;
+  mainUri: URI;
+  mainFileAdded: boolean;
+}): boolean {
+  const { editorUriStr, editorUri, mainFileUri, mainUri, mainFileAdded } =
+    params;
+
+  if (editorUriStr === mainFileUri || editorUriStr === mainUri.toString()) {
+    return true;
+  }
+
+  if (matchDecodedUris(mainFileUri, editorUriStr)) {
+    return true;
+  }
+
+  if (!mainFileAdded) {
+    return false;
+  }
+
+  const mainFileName = mainUri.path.name + mainUri.path.ext;
+  const editorFileName = editorUri.path.name + editorUri.path.ext;
+  return fileNamesMatch(editorFileName, mainFileName);
+}
+
+/**
+ * Checks if an editor URI is a relevant sketch file (same directory, Arduino extension).
+ */
+export function isRelevantSketchFile(editorUri: URI, mainUri: URI): boolean {
+  const editorDir = editorUri.path.dir.toString();
+  const mainDir = mainUri.path.dir.toString();
+  if (editorDir !== mainDir) return false;
+
+  return isArduinoFileExtension(editorUri.path.ext);
 }
 
 // ============================================================================
@@ -50,7 +149,7 @@ export function buildSketchContext(sketchFiles: SketchFile[]): string {
  */
 export async function getCurrentSketchFiles(params: {
   sketchesClient: { tryGetCurrentSketch(): CurrentSketch | undefined };
-  editorManager: any;
+  editorManager: EditorManager;
 }): Promise<Array<{ path: string; content: string }>> {
   const files: Array<{ path: string; content: string }> = [];
 
@@ -86,77 +185,145 @@ export async function getCurrentSketchFiles(params: {
 }
 
 // ============================================================================
-// URI Matching Utilities
+// File Collection Logic (Moved from agent/sketch-operations.ts)
 // ============================================================================
 
-/**
- * Checks if a file extension is an Arduino file type.
- */
-export function isArduinoFileExtension(ext: string): boolean {
-  return ext === '.ino' || ext === '.cpp' || ext === '.h' || ext === '.c';
-}
+export function collectOpenArduinoFiles(
+  editorManager: EditorManager
+): SketchFile[] {
+  const files: SketchFile[] = [];
 
-/**
- * Case-insensitive filename comparison.
- */
-export function fileNamesMatch(fileName1: string, fileName2: string): boolean {
-  return fileName1.toLowerCase() === fileName2.toLowerCase();
-}
+  for (const editor of editorManager.all) {
+    if (!editor.editor.uri || !editor.editor.document) continue;
 
-/**
- * Checks if two URIs match after decoding.
- */
-export function matchDecodedUris(mainFileUri: string, editorUriStr: string): boolean {
-  try {
-    const decodedMainUri = decodeURIComponent(mainFileUri);
-    const decodedEditorUri = decodeURIComponent(editorUriStr);
+    try {
+      const editorUriStr = editor.editor.uri.toString();
+      const decodedEditorUri = decodeURIComponent(editorUriStr);
+      const editorUri = new URI(decodedEditorUri);
 
-    if (decodedMainUri === decodedEditorUri) return true;
-
-    const mainPath = new URI(decodedMainUri).path.toString();
-    const editorPath = new URI(decodedEditorUri).path.toString();
-    return mainPath === editorPath;
-  } catch {
-    return false;
+      if (isArduinoFileExtension(editorUri.path.ext)) {
+        const content = editor.editor.document.getText();
+        files.push({
+          path: editorUri.path.name + editorUri.path.ext,
+          content,
+        });
+      }
+    } catch {
+      // Ignore URI processing errors
+    }
   }
+
+  return files;
 }
 
-/**
- * Checks if the given editor URI represents the main sketch file.
- */
-export function isMainFile(params: {
-  editorUriStr: string;
-  editorUri: URI;
+export function findMainEditor(
+  editorManager: EditorManager,
+  mainFileUri: string,
+  mainUri: URI
+): EditorWidget | undefined {
+  return editorManager.all.find((editor) => {
+    if (!editor.editor.uri) return false;
+    const editorUriStr = editor.editor.uri.toString();
+
+    if (editorUriStr === mainFileUri || editorUriStr === mainUri.toString()) {
+      return true;
+    }
+
+    return matchDecodedUris(mainFileUri, editorUriStr);
+  });
+}
+
+export function addMainSketchFile(
+  files: SketchFile[],
+  editorManager: EditorManager,
+  mainFileUri: string,
+  mainUri: URI
+): boolean {
+  const mainEditor = findMainEditor(editorManager, mainFileUri, mainUri);
+
+  if (mainEditor && mainEditor.editor.document) {
+    const content = mainEditor.editor.document.getText();
+    files.push({
+      path: mainUri.path.name + mainUri.path.ext,
+      content,
+    });
+    return true;
+  }
+
+  return addMainFileByName(files, editorManager, mainUri);
+}
+
+function addMainFileByName(
+  files: SketchFile[],
+  editorManager: EditorManager,
+  mainUri: URI
+): boolean {
+  const expectedMainFileName = mainUri.path.name + mainUri.path.ext;
+
+  for (const editor of editorManager.all) {
+    if (!editor.editor.uri || !editor.editor.document) continue;
+
+    try {
+      const editorUriStr = editor.editor.uri.toString();
+      const decodedEditorUri = decodeURIComponent(editorUriStr);
+      const editorUri = new URI(decodedEditorUri);
+      const editorFileName = editorUri.path.name + editorUri.path.ext;
+
+      if (fileNamesMatch(editorFileName, expectedMainFileName)) {
+        const content = editor.editor.document.getText();
+        files.push({
+          path: editorFileName,
+          content,
+        });
+        return true;
+      }
+    } catch {
+      // Ignore URI processing errors
+    }
+  }
+
+  spectreWarn(`Could not find main file: ${expectedMainFileName}`);
+  return false;
+}
+
+export function addAdditionalSketchFiles(params: {
+  files: SketchFile[];
+  editorManager: EditorManager;
   mainFileUri: string;
   mainUri: URI;
   mainFileAdded: boolean;
-}): boolean {
-  const { editorUriStr, editorUri, mainFileUri, mainUri, mainFileAdded } = params;
+}): void {
+  const { files, editorManager, mainFileUri, mainUri, mainFileAdded } = params;
 
-  if (editorUriStr === mainFileUri || editorUriStr === mainUri.toString()) {
-    return true;
+  for (const editor of editorManager.all) {
+    if (!editor.editor.uri || !editor.editor.document) continue;
+
+    try {
+      const editorUriStr = editor.editor.uri.toString();
+      const decodedEditorUri = decodeURIComponent(editorUriStr);
+      const editorUri = new URI(decodedEditorUri);
+
+      if (
+        isMainFile({
+          editorUriStr,
+          editorUri,
+          mainFileUri,
+          mainUri,
+          mainFileAdded,
+        })
+      ) {
+        continue;
+      }
+
+      if (isRelevantSketchFile(editorUri, mainUri)) {
+        const content = editor.editor.document.getText();
+        files.push({
+          path: editorUri.path.name + editorUri.path.ext,
+          content,
+        });
+      }
+    } catch {
+      // Ignore URI processing errors
+    }
   }
-
-  if (matchDecodedUris(mainFileUri, editorUriStr)) {
-    return true;
-  }
-
-  if (!mainFileAdded) {
-    return false;
-  }
-
-  const mainFileName = mainUri.path.name + mainUri.path.ext;
-  const editorFileName = editorUri.path.name + editorUri.path.ext;
-  return fileNamesMatch(editorFileName, mainFileName);
-}
-
-/**
- * Checks if an editor URI is a relevant sketch file (same directory, Arduino extension).
- */
-export function isRelevantSketchFile(editorUri: URI, mainUri: URI): boolean {
-  const editorDir = editorUri.path.dir.toString();
-  const mainDir = mainUri.path.dir.toString();
-  if (editorDir !== mainDir) return false;
-
-  return isArduinoFileExtension(editorUri.path.ext);
 }

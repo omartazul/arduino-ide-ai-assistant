@@ -6,12 +6,14 @@
  */
 
 import { spectreWarn } from '../../../common/protocol/spectre-types';
+import type { RequestLog, DailyTracker } from '../chat/chat-tools';
+import type { ChatSession } from '../ui/widget-rendering';
 
 /**
  * Storage interface for chat sessions and tracking data.
  */
 interface StorageService {
-  setData(key: string, value: any): Promise<void>;
+  setData(key: string, value: unknown): Promise<void>;
   getData<T>(key: string): Promise<T | undefined>;
 }
 
@@ -21,9 +23,9 @@ interface StorageService {
 interface PersistAllParams {
   storage: StorageService;
   sketchKey: string | undefined;
-  sessions: any[];
-  requestLogs: any[];
-  dailyTracker: any;
+  sessions: ChatSession[];
+  requestLogs: RequestLog[];
+  dailyTracker: DailyTracker;
 }
 
 /**
@@ -46,8 +48,8 @@ export class StorageHelper {
    */
   static async persistTrackingData(
     storage: StorageService,
-    requestLogs: any[],
-    dailyTracker: any
+    requestLogs: RequestLog[],
+    dailyTracker: DailyTracker
   ): Promise<void> {
     try {
       await storage.setData('spectre.requestLogs', requestLogs);
@@ -62,14 +64,24 @@ export class StorageHelper {
    */
   static async loadTrackingData(
     storage: StorageService
-  ): Promise<{ requestLogs: any[]; dailyTracker: any }> {
+  ): Promise<{ requestLogs: RequestLog[]; dailyTracker: DailyTracker }> {
     try {
-      const requestLogs = (await storage.getData<any[]>('spectre.requestLogs')) || [];
-      const dailyTracker = (await storage.getData<any>('spectre.dailyTracker')) || {};
+      const requestLogs =
+        (await storage.getData<RequestLog[]>('spectre.requestLogs')) || [];
+      const dailyTracker =
+        (await storage.getData<DailyTracker>('spectre.dailyTracker')) ||
+        ({
+          date: '',
+          requestCount: 0,
+          tokenCount: 0,
+        } as DailyTracker);
       return { requestLogs, dailyTracker };
     } catch (error) {
       spectreWarn('Failed to load tracking data:', error);
-      return { requestLogs: [], dailyTracker: {} };
+      return {
+        requestLogs: [],
+        dailyTracker: { date: '', requestCount: 0, tokenCount: 0 },
+      };
     }
   }
 
@@ -79,9 +91,9 @@ export class StorageHelper {
   static async loadSketchSessions(
     storage: StorageService,
     sketchKey: string
-  ): Promise<any[] | undefined> {
+  ): Promise<ChatSession[] | undefined> {
     try {
-      return await storage.getData<any[]>(sketchKey);
+      return await storage.getData<ChatSession[]>(sketchKey);
     } catch (error) {
       spectreWarn(`Failed to load sessions for ${sketchKey}:`, error);
       return undefined;

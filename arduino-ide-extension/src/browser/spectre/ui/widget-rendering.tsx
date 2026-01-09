@@ -1,11 +1,11 @@
 /**
  * React rendering helpers for SpectreWidget.
  * Extracted to reduce main widget file complexity.
- * 
+ *
  * @author Tazul Islam
  */
 import * as React from '@theia/core/shared/react';
-import { AgentTask } from '../agent/agent-tools';
+import { AgentTask } from '../agent/agent-utils';
 import type { ConversationMemory } from '../memory/memory-types';
 import { TokenCounter } from '../utils/token-counter';
 
@@ -63,7 +63,10 @@ interface MessageProps {
   idx: number;
   sessionLength: number;
   busy: boolean;
-  renderAssistantMessage: (text: string, isStreaming: boolean) => React.ReactNode;
+  renderAssistantMessage: (
+    text: string,
+    isStreaming: boolean
+  ) => React.ReactNode;
 }
 
 /**
@@ -136,7 +139,7 @@ function shouldHideTaskList(tasks: AgentTask[], tasksClosed: boolean): boolean {
  */
 export function renderTaskList(props: TaskListProps): React.ReactNode {
   const { tasks, tasksExpanded, tasksClosed, onToggleExpand, onClose } = props;
-  
+
   if (shouldHideTaskList(tasks, tasksClosed)) {
     return null;
   }
@@ -231,7 +234,7 @@ function renderTask(task: AgentTask): React.ReactNode {
  */
 export function renderSessionTabs(props: SessionTabsProps): React.ReactNode {
   const { sessions, active, onSetActive } = props;
-  
+
   return (
     <div className="spectre-tabs" role="tablist" aria-label="Chat sessions">
       {sessions.map((s, i) => (
@@ -263,14 +266,14 @@ export function renderSessionTabs(props: SessionTabsProps): React.ReactNode {
  */
 export function renderEmptyState(props: EmptyStateProps): React.ReactNode {
   const { isAgentMode } = props;
-  
+
   return (
     <div className="spectre-empty">
       {isAgentMode ? (
         <div>
-          <strong>Agent Mode:</strong> I can autonomously create/edit
-          sketches, verify code, upload to boards, install/manage boards
-          & libraries, and configure board settings.
+          <strong>Agent Mode:</strong> I can autonomously create/edit sketches,
+          verify code, upload to boards, install/manage boards & libraries, and
+          configure board settings.
           <br />
           Just ask me what you need - I&apos;ll execute IDE actions
           automatically.
@@ -303,9 +306,7 @@ export function renderMessage(props: MessageProps): React.ReactNode {
       key={message.id}
       className={`spectre-row ${isUser ? 'user' : 'assistant'}`}
     >
-      <div
-        className={`spectre-bubble ${isUser ? 'user' : 'assistant'}`}
-      >
+      <div className={`spectre-bubble ${isUser ? 'user' : 'assistant'}`}>
         <div
           className="spectre-meta"
           style={{ textAlign: isUser ? 'right' : 'left' }}
@@ -314,28 +315,23 @@ export function renderMessage(props: MessageProps): React.ReactNode {
         </div>
         {message.role === 'assistant' ? (
           <div style={{ position: 'relative' }}>
-            {renderAssistantMessage(
-              message.text,
-              busy && isLastMessage
-            )}
+            {renderAssistantMessage(message.text, busy && isLastMessage)}
           </div>
         ) : (
           <div className="spectre-user-text">{message.text}</div>
         )}
         {/* Show loading indicator for last assistant message when busy */}
-        {message.role === 'assistant' &&
-          busy &&
-          isLastMessage && (
-            <div
-              style={{
-                marginTop: '8px',
-                opacity: 0.7,
-                fontSize: '12px',
-              }}
-            >
-              ⏳ Processing...
-            </div>
-          )}
+        {message.role === 'assistant' && busy && isLastMessage && (
+          <div
+            style={{
+              marginTop: '8px',
+              opacity: 0.7,
+              fontSize: '12px',
+            }}
+          >
+            ⏳ Processing...
+          </div>
+        )}
       </div>
     </div>
   );
@@ -346,7 +342,7 @@ export function renderMessage(props: MessageProps): React.ReactNode {
  */
 export function renderErrorMessage(props: ErrorMessageProps): React.ReactNode {
   const { error, retryable, onRetry } = props;
-  
+
   if (!error) return null;
 
   return (
@@ -378,7 +374,9 @@ export function renderErrorMessage(props: ErrorMessageProps): React.ReactNode {
 /**
  * Renders character limit warning when approaching or exceeding limit.
  */
-export function renderCharacterLimitWarning(props: CharLimitWarningProps): React.ReactNode {
+export function renderCharacterLimitWarning(
+  props: CharLimitWarningProps
+): React.ReactNode {
   const { inputLength, charLimit, busy } = props;
 
   if (inputLength <= charLimit * 0.9 || busy) return null;
@@ -410,7 +408,10 @@ export function renderCharacterLimitWarning(props: CharLimitWarningProps): React
 /**
  * Gets CSS class for character count status chip.
  */
-function getCharCountStatusClass(inputLength: number, charLimit: number): string {
+function getCharCountStatusClass(
+  inputLength: number,
+  charLimit: number
+): string {
   if (inputLength > charLimit) {
     return 'error';
   }
@@ -423,7 +424,11 @@ function getCharCountStatusClass(inputLength: number, charLimit: number): string
 /**
  * Gets CSS class for send button based on state.
  */
-function getSendButtonClass(busy: boolean, inputLength: number, charLimit: number): string {
+function getSendButtonClass(
+  busy: boolean,
+  inputLength: number,
+  charLimit: number
+): string {
   if (busy) {
     return 'spectre-inline-send spectre-stop';
   }
@@ -436,7 +441,11 @@ function getSendButtonClass(busy: boolean, inputLength: number, charLimit: numbe
 /**
  * Gets aria-label for send button based on state.
  */
-function getSendButtonAriaLabel(busy: boolean, inputLength: number, charLimit: number): string {
+function getSendButtonAriaLabel(
+  busy: boolean,
+  inputLength: number,
+  charLimit: number
+): string {
   if (inputLength > charLimit) {
     return `Message too long (${inputLength}/${charLimit})`;
   }
@@ -446,7 +455,11 @@ function getSendButtonAriaLabel(busy: boolean, inputLength: number, charLimit: n
 /**
  * Gets title tooltip for send button based on state.
  */
-function getSendButtonTitle(busy: boolean, inputLength: number, charLimit: number): string {
+function getSendButtonTitle(
+  busy: boolean,
+  inputLength: number,
+  charLimit: number
+): string {
   if (inputLength > charLimit) {
     return `Message exceeds ${charLimit.toLocaleString()} character limit by ${(
       inputLength - charLimit
@@ -458,7 +471,11 @@ function getSendButtonTitle(busy: boolean, inputLength: number, charLimit: numbe
 /**
  * Gets icon/text for send button based on state.
  */
-function getSendButtonContent(busy: boolean, inputLength: number, charLimit: number): string {
+function getSendButtonContent(
+  busy: boolean,
+  inputLength: number,
+  charLimit: number
+): string {
   if (busy) return '■';
   if (inputLength > charLimit) return '⚠';
   return '➤';
@@ -510,12 +527,13 @@ export function renderInputArea(props: InputAreaProps): React.ReactNode {
             <span className="spectre-chip compact">
               {mode === 'agent' ? 'Agent' : 'Basic'}
             </span>
-            <span className="spectre-chip compact">
-              {model}
-            </span>
+            <span className="spectre-chip compact">{model}</span>
             <span
               id="char-count-status"
-              className={`spectre-chip compact ${getCharCountStatusClass(input.length, charLimit)}`}
+              className={`spectre-chip compact ${getCharCountStatusClass(
+                input.length,
+                charLimit
+              )}`}
               role="status"
               aria-live="polite"
               title={`Character count: ${input.length.toLocaleString()} / ${charLimit.toLocaleString()}`}
@@ -565,10 +583,14 @@ export function renderInlineQuota(props: InlineQuotaProps): React.ReactNode {
 
   const title =
     `Model: ${model}\n` +
-    `TPM Usage: ${quotaUsed.toLocaleString()}/${quotaCapacity.toLocaleString()} tokens (${pct.toFixed(1)}%)\n` +
+    `TPM Usage: ${quotaUsed.toLocaleString()}/${quotaCapacity.toLocaleString()} tokens (${pct.toFixed(
+      1
+    )}%)\n` +
     `RPM: ${rpmUsed}/${rpmLimit}\n` +
     `Client RPM (60s): ${clientRpm}/${rpmLimit}\n` +
-    `Daily (Pacific): ${dailyStats.requests} requests, ${dailyStats.tokens.toLocaleString()} tokens`;
+    `Daily (Pacific): ${
+      dailyStats.requests
+    } requests, ${dailyStats.tokens.toLocaleString()} tokens`;
 
   return (
     <div className="spectre-inline-quota" title={title}>
@@ -578,20 +600,31 @@ export function renderInlineQuota(props: InlineQuotaProps): React.ReactNode {
   );
 }
 
-function shouldHideMemoryStats(memoryStats: MemoryStatsFooterProps['memoryStats']): boolean {
-  return !memoryStats || (memoryStats.recentMessages === 0 && memoryStats.summaries === 0);
+function shouldHideMemoryStats(
+  memoryStats: MemoryStatsFooterProps['memoryStats']
+): boolean {
+  return (
+    !memoryStats ||
+    (memoryStats.recentMessages === 0 && memoryStats.summaries === 0)
+  );
 }
 
-export function renderMemoryStatsFooter(props: MemoryStatsFooterProps): React.ReactNode {
+export function renderMemoryStatsFooter(
+  props: MemoryStatsFooterProps
+): React.ReactNode {
   const { memoryStats } = props;
 
   if (shouldHideMemoryStats(memoryStats)) {
     return null;
   }
 
-  const { recentMessages, summaries, totalTokens, isSummarizing } = memoryStats!;
+  const { recentMessages, summaries, totalTokens, isSummarizing } =
+    memoryStats!;
   const memoryBankCap = 50000;
-  const percent = Math.min(100, Math.max(0, (totalTokens / memoryBankCap) * 100));
+  const percent = Math.min(
+    100,
+    Math.max(0, (totalTokens / memoryBankCap) * 100)
+  );
 
   let statusClass = 'memory-ok';
   if (percent >= 90) {
@@ -601,9 +634,13 @@ export function renderMemoryStatsFooter(props: MemoryStatsFooterProps): React.Re
   }
 
   const statusText =
-    summaries > 0 ? `${recentMessages} msgs + ${summaries} summaries` : `${recentMessages} messages`;
+    summaries > 0
+      ? `${recentMessages} msgs + ${summaries} summaries`
+      : `${recentMessages} messages`;
 
-  const tokenText = `${TokenCounter.formatCount(totalTokens)}/${TokenCounter.formatCount(memoryBankCap)}`;
+  const tokenText = `${TokenCounter.formatCount(
+    totalTokens
+  )}/${TokenCounter.formatCount(memoryBankCap)}`;
 
   return (
     <div
@@ -612,7 +649,9 @@ export function renderMemoryStatsFooter(props: MemoryStatsFooterProps): React.Re
         `Conversation Memory:\n` +
         `Recent Messages: ${recentMessages}\n` +
         `Summaries: ${summaries}\n` +
-        `Total Tokens: ${totalTokens.toLocaleString()}/${memoryBankCap.toLocaleString()} (${percent.toFixed(1)}%)\n\n` +
+        `Total Tokens: ${totalTokens.toLocaleString()}/${memoryBankCap.toLocaleString()} (${percent.toFixed(
+          1
+        )}%)\n\n` +
         `The AI maintains context by keeping recent messages and compressing older ones into summaries. ` +
         `This allows long conversations without hitting token limits.`
       }
@@ -622,7 +661,10 @@ export function renderMemoryStatsFooter(props: MemoryStatsFooterProps): React.Re
         {statusText} • {tokenText}
       </span>
       {isSummarizing && (
-        <span className="memory-status" title="Compressing conversation history...">
+        <span
+          className="memory-status"
+          title="Compressing conversation history..."
+        >
           ⏳ Summarizing...
         </span>
       )}
@@ -685,7 +727,9 @@ const QuotaRing: React.FC<QuotaRingProps> = ({ percent, used, cap }) => {
       >
         {Math.round(percent)}
       </text>
-      <title>{`TPM: ${used.toLocaleString()} / ${cap.toLocaleString()} tokens (${Math.round(percent)}%)`}</title>
+      <title>{`TPM: ${used.toLocaleString()} / ${cap.toLocaleString()} tokens (${Math.round(
+        percent
+      )}%)`}</title>
     </svg>
   );
 };

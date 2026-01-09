@@ -5,7 +5,11 @@
  */
 
 import type { MemoryManager } from '../memory/memory-manager';
-import type { SpectreAiService } from '../../../common/protocol/spectre-ai-service';
+import type {
+  SpectreAiService,
+  SpectreAiRequest,
+  SpectreAiResponse,
+} from '../../../common/protocol/spectre-ai-service';
 import { spectreError } from '../../../common/protocol/spectre-types';
 import type { ChatSession } from '../ui/widget-rendering';
 import { TokenCounter } from '../utils/token-counter';
@@ -106,11 +110,17 @@ async function validateAndPrepareMessageImpl(
   return { text, requestSeq, abortKey, model, sessions };
 }
 
-function canSendMessageNow(deps: ValidateAndPrepareDeps, text: string): boolean {
+function canSendMessageNow(
+  deps: ValidateAndPrepareDeps,
+  text: string
+): boolean {
   return deps.canSendMessage(text, deps.stateData.busy, deps.sending);
 }
 
-function validateCharacterLimit(deps: ValidateAndPrepareDeps, text: string): string | undefined {
+function validateCharacterLimit(
+  deps: ValidateAndPrepareDeps,
+  text: string
+): string | undefined {
   const charLimit = deps.getCharacterLimit();
   if (text.length <= charLimit) {
     return undefined;
@@ -141,7 +151,9 @@ async function appendUserMessageToSessions(
   }
 
   if (!current.memory) {
-    current.memory = deps.memoryManager.createConversation(current.id.toString());
+    current.memory = deps.memoryManager.createConversation(
+      current.id.toString()
+    );
   }
 
   if (current.memory) {
@@ -149,13 +161,17 @@ async function appendUserMessageToSessions(
     deps.saveSessionMemory(current.id);
   }
 
-  const shouldUpdateTitle = current.messages.length === 0 || current.title === 'New Chat';
+  const shouldUpdateTitle =
+    current.messages.length === 0 || current.title === 'New Chat';
   const newTitle = shouldUpdateTitle ? autoTitle(text) : current.title;
 
   sessions[deps.stateData.active] = {
     ...current,
     title: newTitle,
-    messages: [...current.messages, { id: `msg-${Date.now()}-user`, role: 'user', text }],
+    messages: [
+      ...current.messages,
+      { id: `msg-${Date.now()}-user`, role: 'user', text },
+    ],
   };
 
   return sessions;
@@ -217,15 +233,23 @@ export interface BasicModeSendDeps {
   // streaming + UI updates
   streamAttach: (abortKey: string, requestSeq: number) => void;
   appendAssistant: (text: string, requestSeq: number) => Promise<void>;
-  mutateLastAssistant: (mutator: (text: string) => string, requestSeq: number) => Promise<void>;
+  mutateLastAssistant: (
+    mutator: (text: string) => string,
+    requestSeq: number,
+    parts?: any[]
+  ) => Promise<void>;
   streamHasStarted: () => boolean;
 
-  setStateData: (patch: Partial<BasicChatStateData> & { sessions?: ChatSession[] }) => void;
+  setStateData: (
+    patch: Partial<BasicChatStateData> & { sessions?: ChatSession[] }
+  ) => void;
   persist: () => void;
   deferScroll: () => void;
   focusInput: () => void;
 
-  buildSketchContext: (files: Array<{ path: string; content: string }>) => string;
+  buildSketchContext: (
+    files: Array<{ path: string; content: string }>
+  ) => string;
 }
 
 export function startBasicModeGeneration(params: {
@@ -238,7 +262,9 @@ export function startBasicModeGeneration(params: {
 
   const state = deps.getStateData();
   const requestedId = state.requestSessionId;
-  const idx = requestedId ? sessions.findIndex((s) => s.id === requestedId) : state.active;
+  const idx = requestedId
+    ? sessions.findIndex((s) => s.id === requestedId)
+    : state.active;
   const current = sessions[idx];
 
   // Basic mode: Create empty assistant message and attach stream listener
@@ -280,25 +306,30 @@ export function startBasicModeGeneration(params: {
 
   deps.ai
     .generate(genConfig)
-    .then((res) =>
-      void handleGenerationSuccess({
-        deps,
-        res,
-        requestSeq,
-        abortKey,
-        text,
-        model,
-        estTokens,
-        current,
-      })
+    .then(
+      (res) =>
+        void handleGenerationSuccess({
+          deps,
+          res,
+          requestSeq,
+          abortKey,
+          text,
+          model,
+          estTokens,
+          current,
+        })
     )
-    .catch((err) => handleGenerationError({ deps, err, requestSeq, model, estTokens }));
+    .catch((err) =>
+      handleGenerationError({ deps, err, requestSeq, model, estTokens })
+    );
 }
 
 function buildBasicModeContext(params: {
   text: string;
   sketchFiles: Array<{ path: string; content: string }>;
-  buildSketchContext: (files: Array<{ path: string; content: string }>) => string;
+  buildSketchContext: (
+    files: Array<{ path: string; content: string }>
+  ) => string;
 }): string {
   const { text, sketchFiles, buildSketchContext } = params;
 
@@ -312,14 +343,27 @@ function buildBasicModeContext(params: {
 
 function buildConversationHistory(params: {
   memoryManager: MemoryManager;
-  buildSketchContext: (files: Array<{ path: string; content: string }>) => string;
+  buildSketchContext: (
+    files: Array<{ path: string; content: string }>
+  ) => string;
   session: ChatSession | undefined;
   text: string;
   sketchFiles: Array<{ path: string; content: string }>;
   model: string;
-}): Array<{ role: 'user' | 'model'; text: string }> {
-  const { memoryManager, buildSketchContext, session, text, sketchFiles, model } = params;
-  const conversationHistory: Array<{ role: 'user' | 'model'; text: string }> = [];
+}): Array<{ role: 'user' | 'model'; text: string; parts?: any[] }> {
+  const {
+    memoryManager,
+    buildSketchContext,
+    session,
+    text,
+    sketchFiles,
+    model,
+  } = params;
+  const conversationHistory: Array<{
+    role: 'user' | 'model';
+    text: string;
+    parts?: any[];
+  }> = [];
 
   if (!session?.memory) {
     return conversationHistory;
@@ -328,7 +372,8 @@ function buildConversationHistory(params: {
   const isFlashLite = model === 'gemini-2.5-flash-lite';
   const targetBudget = isFlashLite ? 30_000 : 50_000;
 
-  const sketchContext = sketchFiles.length > 0 ? buildSketchContext(sketchFiles) : '';
+  const sketchContext =
+    sketchFiles.length > 0 ? buildSketchContext(sketchFiles) : '';
 
   memoryManager.assemblePrompt(session.memory, {
     currentPrompt: text,
@@ -354,10 +399,20 @@ function buildConversationHistory(params: {
   }
 
   // Add recent messages
-  for (const msg of session.memory.recentMessages) {
+  // IMPORTANT: exclude the most recent user message because it is sent separately as the
+  // current request prompt (often wrapped with sketch context).
+  const recent = session.memory.recentMessages;
+  const endExclusive =
+    recent.length > 0 && recent[recent.length - 1].role === 'user'
+      ? recent.length - 1
+      : recent.length;
+
+  for (let i = 0; i < endExclusive; i++) {
+    const msg = recent[i];
     conversationHistory.push({
       role: msg.role === 'assistant' ? 'model' : 'user',
       text: msg.text,
+      parts: msg.parts,
     });
   }
 
@@ -368,12 +423,16 @@ function createGenerationConfig(params: {
   contextualPrompt: string;
   model: string;
   abortKey: string;
-  conversationHistory: Array<{ role: 'user' | 'model'; text: string }>;
-}): any {
+  conversationHistory: Array<{
+    role: 'user' | 'model';
+    text: string;
+    parts?: any[];
+  }>;
+}): SpectreAiRequest {
   const { contextualPrompt, model, abortKey, conversationHistory } = params;
   return {
     prompt: contextualPrompt,
-    model: model as any,
+    model: model as SpectreAiRequest['model'],
     generationConfig: getModelGenerationConfig(),
     includeThoughts: shouldIncludeThoughts(model),
     abortKey,
@@ -394,16 +453,27 @@ function shouldIncludeThoughts(model: string): boolean {
 }
 
 function buildConversationContext(
-  conversationHistory: Array<{ role: 'user' | 'model'; text: string }>
-): { conversation?: Array<{ role: 'user' | 'model'; text: string }> } {
+  conversationHistory: Array<{
+    role: 'user' | 'model';
+    text: string;
+    parts?: any[];
+  }>
+): {
+  conversation?: Array<{
+    role: 'user' | 'model';
+    text: string;
+    parts?: any[];
+  }>;
+} {
   return {
-    conversation: conversationHistory.length > 0 ? conversationHistory : undefined,
+    conversation:
+      conversationHistory.length > 0 ? conversationHistory : undefined,
   };
 }
 
 async function handleGenerationSuccess(params: {
   deps: BasicModeSendDeps;
-  res: any;
+  res: SpectreAiResponse;
   requestSeq: number;
   abortKey: string;
   text: string;
@@ -411,7 +481,8 @@ async function handleGenerationSuccess(params: {
   estTokens: number;
   current: ChatSession;
 }): Promise<void> {
-  const { deps, res, requestSeq, abortKey, text, model, estTokens, current } = params;
+  const { deps, res, requestSeq, abortKey, text, model, estTokens, current } =
+    params;
 
   if (!isActiveRequest(deps, requestSeq)) {
     return;
@@ -433,7 +504,7 @@ function isActiveRequest(deps: BasicModeSendDeps, requestSeq: number): boolean {
 
 async function applyResultToLastAssistant(params: {
   deps: BasicModeSendDeps;
-  res: any;
+  res: SpectreAiResponse;
   requestSeq: number;
   abortKey: string;
 }): Promise<void> {
@@ -443,8 +514,14 @@ async function applyResultToLastAssistant(params: {
   }
 
   deps.setStateData({ busy: false, currentAbortKey: undefined });
+  
+  // Always update parts if available (Gemini 3 compliance), regardless of streaming state
+  // If stream hasn't started, we also update the full text.
   if (res.text && !deps.streamHasStarted()) {
-    await deps.mutateLastAssistant(() => res.text, requestSeq);
+    await deps.mutateLastAssistant(() => res.text, requestSeq, res.parts);
+  } else if (res.parts) {
+    // Stream has started, but we need to attach the final parts (thoughts) to the message in memory
+    await deps.mutateLastAssistant((t) => t, requestSeq, res.parts);
   }
 }
 
@@ -457,13 +534,16 @@ function updateTitleIfNeeded(params: {
   const state = deps.getStateData();
   const after = state.sessions.slice();
   const requestedId = state.requestSessionId;
-  const idx = requestedId ? after.findIndex((s) => s.id === requestedId) : state.active;
+  const idx = requestedId
+    ? after.findIndex((s) => s.id === requestedId)
+    : state.active;
   const cur = after[idx];
   if (!cur) {
     return;
   }
 
-  const shouldUpdateTitle = current.messages.length === 1 || cur.title === 'New Chat';
+  const shouldUpdateTitle =
+    current.messages.length === 1 || cur.title === 'New Chat';
   const newTitle = shouldUpdateTitle ? autoTitle(text) : cur.title;
   after[idx] = { ...cur, title: newTitle };
   deps.setStateData({ sessions: after });
@@ -471,13 +551,18 @@ function updateTitleIfNeeded(params: {
 
 function handleGenerationError(params: {
   deps: BasicModeSendDeps;
-  err: any;
+  err: unknown;
   requestSeq: number;
   model: string;
   estTokens: number;
 }): void {
   const { deps, err, requestSeq, model, estTokens } = params;
-  spectreError('Spectre AI generation failed:', err?.message || err);
+  const errMessage =
+    err instanceof Error
+      ? err.message
+      : (err as { message?: string })?.message || String(err);
+
+  spectreError('Spectre AI generation failed:', errMessage);
 
   if (requestSeq !== deps.getStateData().requestSeq) {
     return;
@@ -523,33 +608,45 @@ function logRequest(params: {
   void deps.persistTrackingData();
 }
 
-function classifyError(params: {
-  deps: BasicModeSendDeps;
-  err: any;
-}): { errorMessage: string; shouldRetry: boolean } {
+function classifyError(params: { deps: BasicModeSendDeps; err: unknown }): {
+  errorMessage: string;
+  shouldRetry: boolean;
+} {
   const { deps, err } = params;
 
-  const message = err?.message;
+  const message =
+    err instanceof Error ? err.message : (err as { message?: string })?.message;
+
   if (!message) {
-    return { errorMessage: 'An error occurred while generating response.', shouldRetry: false };
+    return {
+      errorMessage: 'An error occurred while generating response.',
+      shouldRetry: false,
+    };
   }
 
   const lower = String(message).toLowerCase();
 
-  const rules: Array<{ match: () => boolean; errorMessage: string; shouldRetry: boolean }> = [
+  const rules: Array<{
+    match: () => boolean;
+    errorMessage: string;
+    shouldRetry: boolean;
+  }> = [
     {
       match: () => deps.isNetworkError(String(message)),
-      errorMessage: 'Network error. Please check your connection and try again.',
+      errorMessage:
+        'Network error. Please check your connection and try again.',
       shouldRetry: true,
     },
     {
-      match: () => lower.includes('api key') || lower.includes('authentication'),
+      match: () =>
+        lower.includes('api key') || lower.includes('authentication'),
       errorMessage: 'API key error. Please check your Spectre settings.',
       shouldRetry: false,
     },
     {
       match: () => lower.includes('quota') || lower.includes('limit'),
-      errorMessage: 'API quota exceeded. Please wait before sending another message.',
+      errorMessage:
+        'API quota exceeded. Please wait before sending another message.',
       shouldRetry: true,
     },
     {
@@ -593,7 +690,9 @@ function displayErrorMessage(params: {
     {
       id: `msg-${Date.now()}-assistant-error`,
       role: 'assistant' as const,
-      text: `❌ **Error:** ${errorMessage}${shouldRetry ? '\n\n*Click the send button to retry.*' : ''}`,
+      text: `❌ **Error:** ${errorMessage}${
+        shouldRetry ? '\n\n*Click the send button to retry.*' : ''
+      }`,
     },
   ];
   sessions[state.active] = { ...current, messages };

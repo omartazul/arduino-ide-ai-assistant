@@ -8,7 +8,7 @@ import {
   Partner,
   Type as TypeLabel,
   Updatable,
-  Installed
+  Installed,
 } from '../nls';
 import type { Defined } from '../types';
 import { naturalCompare } from './../utils';

@@ -31,6 +31,9 @@ export interface RawMessage {
   /** Full message text */
   text: string;
 
+  /** Full message parts (including thoughts) for Gemini 3 compliance */
+  parts?: any[];
+
   /** Timestamp for aging and cleanup */
   timestamp: number;
 

@@ -551,18 +551,18 @@ export default new ContainerModule((bind, unbind, isBound, rebind) => {
     )
     .inSingletonScope();
 
-    // Spectre AI widget (commands/keybindings enabled, menu bar entry disabled)
-    bind(SpectreViewContribution).toSelf().inSingletonScope();
-    bind(CommandContribution).toService(SpectreViewContribution); // Commands (Ctrl+Shift+P)
-    bind(KeybindingContribution).toService(SpectreViewContribution); // Keyboard shortcuts
-    // bind(MenuContribution).toService(SpectreViewContribution);        // Disabled: No menu bar entry
-    bind(TabBarToolbarContribution).toService(SpectreViewContribution); // Tab toolbar buttons
-    bind(FrontendApplicationContribution).toService(SpectreViewContribution);
-    bind(WidgetFactory).toDynamicValue((context) => ({
-      id: SpectreWidget.ID,
-      createWidget: () => context.container.get(SpectreWidget),
-    }));
-    bind(SpectreWidget).toSelf().inSingletonScope();
+  // Spectre AI widget (commands/keybindings enabled, menu bar entry disabled)
+  bind(SpectreViewContribution).toSelf().inSingletonScope();
+  bind(CommandContribution).toService(SpectreViewContribution); // Commands (Ctrl+Shift+P)
+  bind(KeybindingContribution).toService(SpectreViewContribution); // Keyboard shortcuts
+  // bind(MenuContribution).toService(SpectreViewContribution);        // Disabled: No menu bar entry
+  bind(TabBarToolbarContribution).toService(SpectreViewContribution); // Tab toolbar buttons
+  bind(FrontendApplicationContribution).toService(SpectreViewContribution);
+  bind(WidgetFactory).toDynamicValue((context) => ({
+    id: SpectreWidget.ID,
+    createWidget: () => context.container.get(SpectreWidget),
+  }));
+  bind(SpectreWidget).toSelf().inSingletonScope();
 
   // Monitor manager proxy client to receive and delegate pluggable monitors
   // notifications from the backend

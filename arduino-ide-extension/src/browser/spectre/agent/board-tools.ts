@@ -4,8 +4,16 @@
  * @author Tazul Islam
  */
 
-import { spectreError, spectreWarn } from '../../../common/protocol/spectre-types';
+import { spectreWarn } from '../../../common/protocol/spectre-types';
+import {
+  Board,
+  BoardsConfig,
+  DetectedPort,
+  BoardDetails,
+  BoardIdentifier,
+} from '../../../common/protocol/boards-service';
 import { BoardHelper } from '../board/board-helpers';
+import { executeAgentAction } from './agent-utils';
 
 export interface BoardToolsTiming {
   BOARD_SELECTION_DELAY: number;
@@ -19,128 +27,195 @@ export interface BoardToolsContext {
 
   boardsServiceProvider: {
     ready: Promise<void>;
-    boardList: any;
-    boardsConfig: any;
-    detectedPorts: Record<string, any>;
-    updateConfig(update: any): any;
+    boardList: Board[];
+    boardsConfig: BoardsConfig;
+    detectedPorts: Record<string, DetectedPort>;
+    updateConfig(update: unknown): Promise<unknown>;
   };
 
   boardsService: {
-    getInstalledBoards(): Promise<any[]>;
-    searchBoards(params: { query: string }): Promise<any[]>;
-    getBoardDetails(params: { fqbn: string }): Promise<any>;
+    getInstalledBoards(): Promise<Board[]>;
+    searchBoards(params: { query: string }): Promise<Board[]>;
+    getBoardDetails(params: { fqbn: string }): Promise<BoardDetails | undefined>;
   };
 
   boardsDataStore: {
-    selectConfigOption(params: { fqbn: string; optionsToUpdate: Array<{ option: string; selectedValue: string }> }): Promise<boolean>;
+    selectConfigOption(params: {
+      fqbn: string;
+      optionsToUpdate: Array<{ option: string; selectedValue: string }>;
+    }): Promise<boolean>;
     appendConfigToFqbn(fqbn: string): Promise<string | undefined>;
   };
 
-  getBoardSearchCache(): any;
-  setBoardSearchCache(cache: any): void;
+  getBoardSearchCache(): unknown;
+  setBoardSearchCache(cache: unknown): void;
 }
 
-export async function agentSelectBoard(ctx: BoardToolsContext, input: string): Promise<string> {
-  try {
-    await ctx.boardsServiceProvider.ready;
-    const allBoards = await getInstalledBoards(ctx);
-    const matchedBoard = findBoardByName(ctx, input.toLowerCase().trim(), allBoards);
+export async function agentSelectBoard(
+  ctx: BoardToolsContext,
+  input: string
+): Promise<string> {
+  return executeAgentAction(
+    {
+      logPrefix: 'Board selection',
+      actionDesc: 'select board',
+      getErrorMessage: ctx.getErrorMessage,
+    },
+    async () => {
+      await ctx.boardsServiceProvider.ready;
+      const allBoards = await getInstalledBoards(ctx);
+      const matchedBoard = findBoardByName(
+        ctx,
+        input.toLowerCase().trim(),
+        allBoards
+      );
 
-    if (!matchedBoard) {
-      return `❌ Board not found: "${input}". Check installed boards in Tools → Board menu.`;
+      if (!matchedBoard) {
+        return `❌ Board not found: "${input}". Check installed boards in Tools → Board menu.`;
+      }
+
+      return await selectAndValidateBoard(ctx, matchedBoard);
     }
-
-    return await selectAndValidateBoard(ctx, matchedBoard);
-  } catch (error: unknown) {
-    spectreError('❌ Board selection error:', error);
-    return `❌ Failed to select board: ${ctx.getErrorMessage(error)}`;
-  }
+  );
 }
 
-export async function agentSelectPort(ctx: BoardToolsContext, port: string): Promise<string> {
-  try {
-    const detectedPorts = Object.values(ctx.boardsServiceProvider.detectedPorts);
-    const targetPort = detectedPorts.find((dp: any) => dp.port.address === port);
+export async function agentSelectPort(
+  ctx: BoardToolsContext,
+  port: string
+): Promise<string> {
+  return executeAgentAction(
+    {
+      logPrefix: 'Port selection',
+      actionDesc: 'select port',
+      getErrorMessage: ctx.getErrorMessage,
+    },
+    async () => {
+      const detectedPorts = Object.values(
+        ctx.boardsServiceProvider.detectedPorts
+      );
+      const targetPort = detectedPorts.find((dp) => dp.port.address === port);
 
-    if (targetPort) {
-      ctx.boardsServiceProvider.updateConfig({
-        protocol: targetPort.port.protocol,
-        address: targetPort.port.address,
-      });
-      await ctx.delay(ctx.timing.BOARD_SELECTION_DELAY);
-      return `✅ Port selected: ${targetPort.port.address} (${targetPort.port.protocolLabel || targetPort.port.protocol})`;
+      if (targetPort) {
+        ctx.boardsServiceProvider.updateConfig({
+          protocol: targetPort.port.protocol,
+          address: targetPort.port.address,
+        });
+        await ctx.delay(ctx.timing.BOARD_SELECTION_DELAY);
+        return `✅ Port selected: ${targetPort.port.address} (${
+          targetPort.port.protocolLabel || targetPort.port.protocol
+        })`;
+      }
+
+      const availablePorts = detectedPorts
+        .map((dp) => dp.port.address)
+        .join(', ');
+      if (availablePorts) {
+        return `❌ Port "${port}" not found. Available ports: ${availablePorts}. Please check your Arduino connection or use one of the available ports.`;
+      }
+
+      return `❌ Port "${port}" not found and no development boards detected. Please check your board connection.`;
     }
-
-    const availablePorts = detectedPorts.map((dp: any) => dp.port.address).join(', ');
-    if (availablePorts) {
-      return `❌ Port "${port}" not found. Available ports: ${availablePorts}. Please check your Arduino connection or use one of the available ports.`;
-    }
-
-    return `❌ Port "${port}" not found and no development boards detected. Please check your board connection.`;
-  } catch (error: unknown) {
-    spectreError('❌ Port selection error:', error);
-    return `❌ Failed to select port: ${ctx.getErrorMessage(error)}`;
-  }
+  );
 }
 
-export async function agentGetBoardsList(ctx: BoardToolsContext): Promise<string> {
-  try {
-    const connectedBoardsText = getConnectedBoardsText(ctx);
-    const allAvailableBoards = await getAvailableBoardsText(ctx);
-    return buildBoardsListMessage(connectedBoardsText, allAvailableBoards);
-  } catch (error: unknown) {
-    return `❌ Failed to get board list: ${ctx.getErrorMessage(error)}`;
-  }
+export async function agentGetBoardsList(
+  ctx: BoardToolsContext
+): Promise<string> {
+  return executeAgentAction(
+    {
+      logPrefix: 'Board list',
+      actionDesc: 'get board list',
+      getErrorMessage: ctx.getErrorMessage,
+    },
+    async () => {
+      const connectedBoardsText = getConnectedBoardsText(ctx);
+      const allAvailableBoards = await getAvailableBoardsText(ctx);
+      return buildBoardsListMessage(connectedBoardsText, allAvailableBoards);
+    }
+  );
 }
 
-export async function agentGetPortsList(ctx: BoardToolsContext): Promise<string> {
-  try {
-    const detectedPorts = Object.values(ctx.boardsServiceProvider.detectedPorts);
-    if (detectedPorts.length === 0) {
-      return '❌ No development boards detected. Please check:\n• Board is connected via USB cable\n• Board drivers are installed\n• Cable supports data transfer (not power-only)\n• Board is powered on';
+export async function agentGetPortsList(
+  ctx: BoardToolsContext
+): Promise<string> {
+  return executeAgentAction(
+    {
+      logPrefix: 'Port listing',
+      actionDesc: 'list ports',
+      getErrorMessage: ctx.getErrorMessage,
+    },
+    async () => {
+      const detectedPorts = Object.values(
+        ctx.boardsServiceProvider.detectedPorts
+      );
+      if (detectedPorts.length === 0) {
+        return '❌ No development boards detected. Please check:\n• Board is connected via USB cable\n• Board drivers are installed\n• Cable supports data transfer (not power-only)\n• Board is powered on';
+      }
+
+      const portsList = detectedPorts
+        .map((dp) => {
+          const boardInfo =
+            dp.boards && dp.boards.length > 0
+              ? ` (Board: ${dp.boards[0].name})`
+              : '';
+          return `- ${dp.port.address} (${
+            dp.port.protocolLabel || dp.port.protocol
+          })${boardInfo}`;
+        })
+        .join('\n');
+
+      return `📋 Available ports:\n${portsList}\n\n💡 Use [ACTION:SELECT_PORT:address] to select a port.`;
     }
-
-    const portsList = detectedPorts
-      .map((dp: any) => {
-        const boardInfo = dp.matchingBoards?.length > 0 ? ` (Board: ${dp.matchingBoards[0].name})` : '';
-        return `- ${dp.port.address} (${dp.port.protocolLabel || dp.port.protocol})${boardInfo}`;
-      })
-      .join('\n');
-
-    return `📋 Available ports:\n${portsList}\n\n💡 Use [ACTION:SELECT_PORT:address] to select a port.`;
-  } catch (error: unknown) {
-    spectreError('❌ Port listing error:', error);
-    return `❌ Failed to list ports: ${ctx.getErrorMessage(error)}`;
-  }
+  );
 }
 
-export async function agentGetBoardConfig(ctx: BoardToolsContext, fqbn?: string): Promise<string> {
-  try {
-    const targetFqbn = await resolveBoardFqbn(ctx, fqbn);
-    if (targetFqbn.startsWith('❌')) {
-      return targetFqbn;
+export async function agentGetBoardConfig(
+  ctx: BoardToolsContext,
+  fqbn?: string
+): Promise<string> {
+  return executeAgentAction(
+    {
+      logPrefix: 'Board config',
+      actionDesc: 'get board configuration',
+      getErrorMessage: ctx.getErrorMessage,
+    },
+    async () => {
+      const targetFqbn = await resolveBoardFqbn(ctx, fqbn);
+      if (targetFqbn.startsWith('❌')) {
+        return targetFqbn;
+      }
+      return await formatBoardConfig(ctx, targetFqbn);
     }
-    return await formatBoardConfig(ctx, targetFqbn);
-  } catch (error: unknown) {
-    spectreError('❌ Board config error:', error);
-    return `❌ Failed to get board configuration: ${ctx.getErrorMessage(error)}`;
-  }
+  );
 }
 
 function getConnectedBoardsText(ctx: BoardToolsContext): string {
-  const boardList = ctx.boardsServiceProvider.boardList;
-  return boardList.boards
-    .filter((board: any) => board.board && board.board.fqbn)
-    .map((board: any) => `- ${board.board.name} (FQBN: ${board.board.fqbn}) [Connected]`)
+  const boardList = ctx.boardsServiceProvider.boardList as unknown;
+  const listWithBoards = boardList as { boards: unknown[] } | null;
+
+  if (!listWithBoards?.boards || !Array.isArray(listWithBoards.boards)) {
+    return '';
+  }
+
+  return listWithBoards.boards
+    .filter((entry): entry is { board: { name: string; fqbn: string } } => {
+      const e = entry as { board?: { fqbn?: string } } | null;
+      return !!(e && e.board && e.board.fqbn);
+    })
+    .map(
+      (entry) => `- ${entry.board.name} (FQBN: ${entry.board.fqbn}) [Connected]`
+    )
     .join('\n');
 }
 
-async function getAvailableBoardsText(ctx: BoardToolsContext): Promise<string[]> {
+async function getAvailableBoardsText(
+  ctx: BoardToolsContext
+): Promise<string[]> {
   try {
     const searchResults = await ctx.boardsService.searchBoards({ query: '' });
     return searchResults
-      .filter((board: any) => board.fqbn && board.name)
-      .map((board: any) => `- ${board.name} (FQBN: ${board.fqbn})`)
+      .filter((board) => board.fqbn && board.name)
+      .map((board) => `- ${board.name} (FQBN: ${board.fqbn})`)
       .slice(0, 20);
   } catch (searchError) {
     spectreWarn('Failed to search boards:', searchError);
@@ -148,7 +223,10 @@ async function getAvailableBoardsText(ctx: BoardToolsContext): Promise<string[]>
   }
 }
 
-function buildBoardsListMessage(connectedBoardsText: string, allAvailableBoards: string[]): string {
+function buildBoardsListMessage(
+  connectedBoardsText: string,
+  allAvailableBoards: string[]
+): string {
   let result = '📋 **Available Boards:**\n';
 
   if (connectedBoardsText) {
@@ -156,7 +234,10 @@ function buildBoardsListMessage(connectedBoardsText: string, allAvailableBoards:
   }
 
   if (allAvailableBoards.length > 0) {
-    result += '\n**📚 All Available Boards (from installed platforms):**\n' + allAvailableBoards.join('\n') + '\n';
+    result +=
+      '\n**📚 All Available Boards (from installed platforms):**\n' +
+      allAvailableBoards.join('\n') +
+      '\n';
   }
 
   if (!connectedBoardsText && allAvailableBoards.length === 0) {
@@ -164,12 +245,18 @@ function buildBoardsListMessage(connectedBoardsText: string, allAvailableBoards:
       'No boards available. Please:\n1. Connect your development board, or\n2. Install board packages via Boards Manager\n3. Make sure the IDE can detect your hardware';
   }
 
-  result += '\n\n💡 Use [ACTION:SELECT_BOARD:board_name] to select any board by its name from the list above.';
+  result +=
+    '\n\n💡 Use [ACTION:SELECT_BOARD:board_name] to select any board by its name from the list above.';
   return result;
 }
 
-async function formatBoardConfig(ctx: BoardToolsContext, targetFqbn: string): Promise<string> {
-  const boardDetails = await ctx.boardsService.getBoardDetails({ fqbn: targetFqbn });
+async function formatBoardConfig(
+  ctx: BoardToolsContext,
+  targetFqbn: string
+): Promise<string> {
+  const boardDetails = await ctx.boardsService.getBoardDetails({
+    fqbn: targetFqbn,
+  });
   if (!boardDetails) {
     return `❌ Could not get board details for ${targetFqbn}. Make sure the board platform is installed.`;
   }
@@ -179,15 +266,16 @@ async function formatBoardConfig(ctx: BoardToolsContext, targetFqbn: string): Pr
   }
 
   const configList = boardDetails.configOptions
-    .map((option: any) => {
+    .map((option) => {
       const availableValues = option.values
-        .map((v: any) => `${v.value}="${v.label}"${v.selected ? ' (current)' : ''}`)
+        .map((v) => `${v.value}="${v.label}"${v.selected ? ' (current)' : ''}`)
         .join(', ');
       return `- **${option.option}** (${option.label}): ${availableValues}`;
     })
     .join('\n');
 
-  const boardName = ctx.boardsServiceProvider.boardsConfig.selectedBoard?.name || targetFqbn;
+  const boardName =
+    ctx.boardsServiceProvider.boardsConfig.selectedBoard?.name || targetFqbn;
   return `⚙️ **Board Configuration for "${boardName}":**\n\n${configList}\n\n💡 Use [ACTION:SET_BOARD_CONFIG:option=value] to configure options.`;
 }
 
@@ -196,43 +284,65 @@ export async function agentSetBoardConfig(
   fqbn: string | undefined,
   options: string
 ): Promise<string> {
-  try {
-    const targetFqbn = await resolveBoardFqbn(ctx, fqbn);
-    if (targetFqbn.startsWith('❌')) {
-      return targetFqbn;
+  return executeAgentAction(
+    {
+      logPrefix: 'Board config update',
+      actionDesc: 'set board configuration',
+      getErrorMessage: ctx.getErrorMessage,
+    },
+    async () => {
+      const targetFqbn = await resolveBoardFqbn(ctx, fqbn);
+      if (targetFqbn.startsWith('❌')) {
+        return targetFqbn;
+      }
+
+      const optionsToUpdate = BoardHelper.parseConfigOptions(options);
+      const updateResult = await applyBoardConfigUpdate(
+        ctx,
+        targetFqbn,
+        optionsToUpdate
+      );
+
+      if (typeof updateResult === 'string') {
+        return updateResult;
+      }
+
+      const optionsText = optionsToUpdate
+        .map((o) => `${o.option}=${o.selectedValue}`)
+        .join(', ');
+      return `✅ Board configuration updated: ${optionsText}\n\nFull FQBN: ${
+        updateResult.updatedFqbn || targetFqbn
+      }`;
     }
-
-    const optionsToUpdate = BoardHelper.parseConfigOptions(options);
-    const updateResult = await applyBoardConfigUpdate(ctx, targetFqbn, optionsToUpdate);
-
-    if (typeof updateResult === 'string') {
-      return updateResult;
-    }
-
-    const optionsText = optionsToUpdate.map((o) => `${o.option}=${o.selectedValue}`).join(', ');
-    return `✅ Board configuration updated: ${optionsText}\n\nFull FQBN: ${updateResult.updatedFqbn || targetFqbn}`;
-  } catch (error: unknown) {
-    spectreError('❌ Board config update error:', error);
-    return `❌ Failed to set board configuration: ${ctx.getErrorMessage(error)}`;
-  }
+  );
 }
 
-async function getInstalledBoards(ctx: BoardToolsContext): Promise<any[]> {
+async function getInstalledBoards(ctx: BoardToolsContext): Promise<Board[]> {
   const installedBoards = await ctx.boardsService.getInstalledBoards();
-  return installedBoards.filter((board: any) => board.fqbn && board.name);
+  return installedBoards.filter((board) => board.fqbn && board.name);
 }
 
-function findBoardByName(ctx: BoardToolsContext, inputName: string, boards: any[]): any | null {
+function findBoardByName(
+  ctx: BoardToolsContext,
+  inputName: string,
+  boards: Board[]
+): Board | undefined {
   const cache = ctx.getBoardSearchCache();
-  if (!BoardHelper.isBoardCacheValid(cache)) {
+  if (!BoardHelper.isBoardCacheValid(cache as any)) {
     ctx.setBoardSearchCache(BoardHelper.buildBoardCache(boards));
   }
 
-  const result = BoardHelper.findBoardByName(inputName, ctx.getBoardSearchCache());
-  return result.board;
+  const result = BoardHelper.findBoardByName(
+    inputName,
+    ctx.getBoardSearchCache() as any
+  );
+  return result.board || undefined;
 }
 
-async function selectAndValidateBoard(ctx: BoardToolsContext, matchedBoard: any): Promise<string> {
+async function selectAndValidateBoard(
+  ctx: BoardToolsContext,
+  matchedBoard: Board
+): Promise<string> {
   const currentConfig = ctx.boardsServiceProvider.boardsConfig;
   if (currentConfig?.selectedBoard?.fqbn === matchedBoard.fqbn) {
     return `✅ Board already selected: ${matchedBoard.name} (${matchedBoard.fqbn}). No action needed - board configuration is ready.`;
@@ -241,7 +351,7 @@ async function selectAndValidateBoard(ctx: BoardToolsContext, matchedBoard: any)
   ctx.boardsServiceProvider.updateConfig({
     name: matchedBoard.name,
     fqbn: matchedBoard.fqbn,
-  });
+  } as unknown as BoardIdentifier);
 
   await ctx.delay(ctx.timing.BOARD_SELECTION_DELAY);
 
@@ -254,7 +364,10 @@ async function selectAndValidateBoard(ctx: BoardToolsContext, matchedBoard: any)
   return `⚠️ Board selected but validation failed: ${matchedBoard.name}`;
 }
 
-async function resolveBoardFqbn(ctx: BoardToolsContext, fqbn: string | undefined): Promise<string> {
+async function resolveBoardFqbn(
+  ctx: BoardToolsContext,
+  fqbn: string | undefined
+): Promise<string> {
   if (fqbn) {
     return fqbn;
   }
@@ -285,9 +398,11 @@ async function applyBoardConfigUpdate(
 
   if (updatedFqbn) {
     ctx.boardsServiceProvider.updateConfig({
-      name: ctx.boardsServiceProvider.boardsConfig.selectedBoard?.name || 'Platform Board',
+      name:
+        ctx.boardsServiceProvider.boardsConfig.selectedBoard?.name ||
+        'Platform Board',
       fqbn: updatedFqbn,
-    });
+    } as unknown as BoardIdentifier);
   }
 
   return { updatedFqbn };

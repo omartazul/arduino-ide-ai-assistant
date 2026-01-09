@@ -6,7 +6,10 @@
  */
 
 import React from '@theia/core/shared/react';
-import { ARDUINO_FENCED_BLOCK_REGEX, ANY_FENCED_BLOCK_SPLIT_REGEX } from './ui-utilities';
+import {
+  ARDUINO_FENCED_BLOCK_REGEX,
+  ANY_FENCED_BLOCK_SPLIT_REGEX,
+} from './ui-utilities';
 
 /**
  * Lazy-loaded ReactMarkdown component.
@@ -26,7 +29,11 @@ export function setReactMarkdownLazy(component: any): void {
 function renderMarkdownText(text: string, key: string): React.ReactNode {
   return (
     <div key={key} style={{ marginBottom: '8px' }}>
-      {ReactMarkdownLazy ? <ReactMarkdownLazy>{text}</ReactMarkdownLazy> : <pre>{text}</pre>}
+      {ReactMarkdownLazy ? (
+        <ReactMarkdownLazy>{text}</ReactMarkdownLazy>
+      ) : (
+        <pre>{text}</pre>
+      )}
     </div>
   );
 }
@@ -109,7 +116,11 @@ export function renderInlineCodeBlocks(
 
   parts.push(
     <div key="text-main">
-      {ReactMarkdownLazy ? <ReactMarkdownLazy>{text}</ReactMarkdownLazy> : <pre>{text}</pre>}
+      {ReactMarkdownLazy ? (
+        <ReactMarkdownLazy>{text}</ReactMarkdownLazy>
+      ) : (
+        <pre>{text}</pre>
+      )}
     </div>
   );
 

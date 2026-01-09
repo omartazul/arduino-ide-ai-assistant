@@ -8,7 +8,8 @@ import React from '@theia/core/shared/react';
 
 import * as WidgetRenderHelpers from './widget-rendering';
 import type { ChatMessage, ChatSession } from './widget-rendering';
-import type { AgentTask } from '../agent/agent-tools';
+import type { AgentTask } from '../agent/agent-utils';
+import type { MemoryStats } from '../chat/chat-session-manager';
 
 export interface SpectreViewProps {
   mode: 'agent' | 'basic';
@@ -39,7 +40,7 @@ export interface SpectreViewProps {
   clientRpm: number;
   dailyStats: { requests: number; tokens: number };
 
-  memoryStats?: any;
+  memoryStats?: MemoryStats;
 
   onSetActive: (index: number) => void;
   onToggleTasksExpand: () => void;
@@ -53,7 +54,10 @@ export interface SpectreViewProps {
   onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   inputRef: (el: HTMLTextAreaElement | null) => void;
 
-  renderAssistantMessage: (text: string, isStreaming: boolean) => React.ReactNode;
+  renderAssistantMessage: (
+    text: string,
+    isStreaming: boolean
+  ) => React.ReactNode;
 }
 
 export function SpectreView(props: SpectreViewProps): React.ReactNode {
@@ -118,11 +122,13 @@ export function SpectreView(props: SpectreViewProps): React.ReactNode {
     onRetry,
   });
 
-  const characterLimitWarning = WidgetRenderHelpers.renderCharacterLimitWarning({
-    inputLength: input.length,
-    charLimit,
-    busy,
-  });
+  const characterLimitWarning = WidgetRenderHelpers.renderCharacterLimitWarning(
+    {
+      inputLength: input.length,
+      charLimit,
+      busy,
+    }
+  );
 
   const inputArea = WidgetRenderHelpers.renderInputArea({
     input,

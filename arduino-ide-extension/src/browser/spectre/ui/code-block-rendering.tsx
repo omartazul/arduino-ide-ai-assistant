@@ -83,7 +83,9 @@ async function fallbackToClipboard(params: {
 }): Promise<boolean> {
   const { code, deps, editor } = params;
 
-  spectreWarn('Could not access Monaco editor directly, falling back to clipboard');
+  spectreWarn(
+    'Could not access Monaco editor directly, falling back to clipboard'
+  );
   const success = await copyToClipboard(code);
   const hasValidEditor = success && editor?.editor;
   if (hasValidEditor) {
@@ -112,7 +114,10 @@ export async function pasteToEditor(params: {
     const textEditor = editor.editor;
 
     // Check if it's a Monaco editor and access the Monaco instance
-    if ('getControl' in textEditor && typeof (textEditor as any).getControl === 'function') {
+    if (
+      'getControl' in textEditor &&
+      typeof (textEditor as any).getControl === 'function'
+    ) {
       const monacoEditor = (textEditor as any).getControl();
       const success = pasteToMonacoEditor(monacoEditor, code);
 
@@ -126,7 +131,11 @@ export async function pasteToEditor(params: {
   } catch (error) {
     spectreWarn('Failed to paste to editor, falling back to clipboard:', error);
     // Fallback: copy to clipboard and focus editor
-    return await fallbackToClipboard({ code, deps, editor: deps.editorManager.currentEditor });
+    return await fallbackToClipboard({
+      code,
+      deps,
+      editor: deps.editorManager.currentEditor,
+    });
   }
 }
 
@@ -170,7 +179,10 @@ export function renderSingleCodeBlock(params: {
           <button
             className="spectre-code-action-btn"
             onClick={async () => {
-              const success = await pasteToEditor({ code: codeBlock.code, deps });
+              const success = await pasteToEditor({
+                code: codeBlock.code,
+                deps,
+              });
               const button = document.activeElement as HTMLButtonElement;
               if (button && success) {
                 const originalHTML = button.innerHTML;
@@ -218,18 +230,36 @@ export function renderAssistantMessage(params: {
   const codeBlocks = extractArduinoCode(text);
 
   if (codeBlocks.length > 0 && deps.isBasicMode) {
-    const renderBlock = (codeBlock: ExtractedCodeBlock, index: number): React.ReactNode =>
-      renderSingleCodeBlock({ deps, codeBlock, index });
+    const renderBlock = (
+      codeBlock: ExtractedCodeBlock,
+      index: number
+    ): React.ReactNode => renderSingleCodeBlock({ deps, codeBlock, index });
 
-    const parts = RenderingHelpers.processExplicitCodeBlocks(text, codeBlocks, renderBlock);
+    const parts = RenderingHelpers.processExplicitCodeBlocks(
+      text,
+      codeBlocks,
+      renderBlock
+    );
 
     if (parts.length === 0 && codeBlocks.length > 0) {
-      return <div>{RenderingHelpers.renderInlineCodeBlocks(text, codeBlocks, renderBlock)}</div>;
+      return (
+        <div>
+          {RenderingHelpers.renderInlineCodeBlocks(
+            text,
+            codeBlocks,
+            renderBlock
+          )}
+        </div>
+      );
     }
 
     return <div>{parts}</div>;
   }
 
   const ReactMarkdown = RenderingHelpers.ReactMarkdownLazy;
-  return ReactMarkdown ? <ReactMarkdown>{text}</ReactMarkdown> : <pre style={{ whiteSpace: 'pre-wrap' }}>{text}</pre>;
+  return ReactMarkdown ? (
+    <ReactMarkdown>{text}</ReactMarkdown>
+  ) : (
+    <pre style={{ whiteSpace: 'pre-wrap' }}>{text}</pre>
+  );
 }

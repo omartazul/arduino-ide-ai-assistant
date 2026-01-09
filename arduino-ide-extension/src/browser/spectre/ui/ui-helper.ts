@@ -44,7 +44,11 @@ export class UIHelper {
   }
 
   private static isEmptyLineOrComment(trimmed: string): boolean {
-    return trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*');
+    return (
+      trimmed.startsWith('//') ||
+      trimmed.startsWith('/*') ||
+      trimmed.startsWith('*')
+    );
   }
 
   private static hasArduinoPattern(trimmed: string): boolean {
@@ -103,7 +107,8 @@ export class UIHelper {
     isExplanation: boolean;
     codeStarted: boolean;
   }): { add: boolean; continueSection: boolean } {
-    const { trimmed, inCodeSection, isCode, isExplanation, codeStarted } = params;
+    const { trimmed, inCodeSection, isCode, isExplanation, codeStarted } =
+      params;
 
     if (!trimmed) {
       return { add: inCodeSection, continueSection: inCodeSection };
@@ -237,7 +242,8 @@ export class UIHelper {
     decorations: any[];
     contentWidgets: any[];
   }): { oldIdx: number; newIdx: number } {
-    const { oldLines, newLines, oldIdx, newIdx, decorations, contentWidgets } = params;
+    const { oldLines, newLines, oldIdx, newIdx, decorations, contentWidgets } =
+      params;
 
     // Try deletion check
     const deletionResult = UIHelper.checkDeletion({
@@ -278,7 +284,12 @@ export class UIHelper {
     contentWidgets: any[];
   }): { oldIdx: number; newIdx: number } | null {
     const { oldLines, newLines, oldIdx, newIdx, contentWidgets } = params;
-    const lookahead = UIHelper.tryLookaheadMatch(newLines[newIdx], oldLines, oldIdx + 1, 3);
+    const lookahead = UIHelper.tryLookaheadMatch(
+      newLines[newIdx],
+      oldLines,
+      oldIdx + 1,
+      3
+    );
 
     if (lookahead !== -1) {
       // Deletion detected: old line removed from new text.
@@ -298,7 +309,12 @@ export class UIHelper {
     decorations: any[];
   }): { oldIdx: number; newIdx: number } | null {
     const { oldLines, newLines, oldIdx, newIdx, decorations } = params;
-    const lookahead = UIHelper.tryLookaheadMatch(oldLines[oldIdx], newLines, newIdx + 1, 3);
+    const lookahead = UIHelper.tryLookaheadMatch(
+      oldLines[oldIdx],
+      newLines,
+      newIdx + 1,
+      3
+    );
 
     if (lookahead !== -1) {
       // Addition detected: new line inserted into new text.
@@ -320,7 +336,10 @@ export class UIHelper {
     const { oldIdx, newIdx, decorations, contentWidgets } = params;
 
     // Replacement: show deleted above added
-    contentWidgets.push({ lineNumber: newIdx + 1, text: params.oldLines[oldIdx] });
+    contentWidgets.push({
+      lineNumber: newIdx + 1,
+      text: params.oldLines[oldIdx],
+    });
     UIHelper.addAdditionDecoration(decorations, newIdx + 1);
 
     return { oldIdx: oldIdx + 1, newIdx: newIdx + 1 };
@@ -335,7 +354,11 @@ export class UIHelper {
     searchStartIdx: number,
     maxLookahead: number
   ): number {
-    for (let i = 0; i < maxLookahead && searchStartIdx + i < searchLines.length; i++) {
+    for (
+      let i = 0;
+      i < maxLookahead && searchStartIdx + i < searchLines.length;
+      i++
+    ) {
       if (searchLines[searchStartIdx + i] === currentLine) {
         return searchStartIdx + i;
       }
@@ -461,9 +484,14 @@ export class UIHelper {
   /**
    * Gets language display name and line count for a code block.
    */
-  static getCodeBlockMetadata(codeBlock: CodeBlock): { language: string; lineCount: number } {
+  static getCodeBlockMetadata(codeBlock: CodeBlock): {
+    language: string;
+    lineCount: number;
+  } {
     const lineCount = codeBlock.code.split('\n').length;
-    const language = codeBlock.language ? codeBlock.language.toUpperCase() : 'ARDUINO';
+    const language = codeBlock.language
+      ? codeBlock.language.toUpperCase()
+      : 'ARDUINO';
     return { language, lineCount };
   }
 }

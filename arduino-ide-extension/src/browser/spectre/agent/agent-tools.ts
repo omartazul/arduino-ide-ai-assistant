@@ -1,43 +1,77 @@
 /**
  * Consolidated Agent Tools
- * 
+ *
  * This file consolidates the following smaller agent tool files:
  * - library-tools.ts
  * - board-url-tools.ts
  * - agent-response-utilities.ts
  * - agent-helpers.ts
  * - task-helpers.ts
- * 
+ *
  * @author Tazul Islam
  */
 
-import { spectreError, spectreWarn } from '../../../common/protocol/spectre-types';
+import {
+  spectreError,
+  spectreWarn,
+} from '../../../common/protocol/spectre-types';
+import { LibraryPackage } from '../../../common/protocol/library-service';
+import { BoardsPackage } from '../../../common/protocol/boards-service';
 import { BoardHelper, BoardUrlHelper } from '../board/board-helpers';
 import { ValidationHelper } from '../utils/validation-helper';
-import * as RenderingHelpers from '../ui/message-rendering';
+
+// Canonical agent response/task parsing utilities live in agent-utils.
+export type {
+  AgentTask,
+  AgentActionHistoryRecord,
+  CleanAgentResponseResult,
+} from './agent-utils';
+export { parseTasksFromResponse, cleanAgentResponse } from './agent-utils';
+
+// Keep completion helpers available from this consolidated module.
+export * from './completion';
+
+export function formatUnknownError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+export async function executeAgentAction(
+  params: {
+    logPrefix: string;
+    actionDesc: string;
+    getErrorMessage?: (err: unknown) => string;
+    logError?: (msg: string, err: unknown) => void;
+    errorHandler?: (err: unknown) => string;
+  },
+  action: () => Promise<string>
+): Promise<string> {
+  const {
+    logPrefix,
+    actionDesc,
+    getErrorMessage = formatUnknownError,
+    logError = spectreError,
+    errorHandler,
+  } = params;
+  try {
+    return await action();
+  } catch (error: unknown) {
+    if (logPrefix) {
+      logError(`❌ ${logPrefix} error:`, error);
+    }
+    if (errorHandler) {
+      return errorHandler(error);
+    }
+    return `❌ Failed to ${actionDesc}: ${getErrorMessage(error)}`;
+  }
+}
 
 // ============================================================================
+
 // Types and Interfaces
 // ============================================================================
-
-export interface AgentActionHistoryEntry {
-  result?: { success: boolean };
-}
-
-export interface CleanAgentResponseResult {
-  cleanText: string;
-  tasks: AgentTask[];
-}
-
-export interface AgentTask {
-  id: string;
-  description: string;
-  status: 'pending' | 'in-progress' | 'completed' | 'failed';
-  startTime?: number;
-  endTime?: number;
-  error?: string;
-  actionType: string;
-}
 
 interface LibraryValidationParams {
   name: string;
@@ -46,17 +80,23 @@ interface LibraryValidationParams {
 
 interface LibrarySearchParams {
   name: string;
-  searchResults: any[];
+  searchResults: LibraryPackage[];
 }
 
 type LibrarySearchResult =
-  | { success: true; package: any }
+  | { success: true; package: LibraryPackage }
   | { success: false; error: string };
 
 interface LibraryMessageParams {
   name: string;
   version?: string;
-  type: 'notFound' | 'noVersions' | 'alreadyInstalled' | 'notInstalled' | 'installSuccess' | 'uninstallSuccess';
+  type:
+    | 'notFound'
+    | 'noVersions'
+    | 'alreadyInstalled'
+    | 'notInstalled'
+    | 'installSuccess'
+    | 'uninstallSuccess';
 }
 
 // ============================================================================
@@ -65,11 +105,13 @@ interface LibraryMessageParams {
 
 export interface LibraryToolsContext {
   libraryService: {
-    search(params: { query: string }): Promise<any[]>;
-    install(params: { item: any; noDeps: boolean }): Promise<void>;
-    uninstall(params: { item: any }): Promise<void>;
+    search(params: { query: string }): Promise<LibraryPackage[]>;
+    install(params: { item: LibraryPackage; noDeps: boolean }): Promise<void>;
+    uninstall(params: { item: LibraryPackage }): Promise<void>;
   };
-  outputChannels: { getChannel(id: string): { appendLine(line: string): void } };
+  outputChannels: {
+    getChannel(id: string): { appendLine(line: string): void };
+  };
 }
 
 export async function agentInstallLibrary(
@@ -83,7 +125,9 @@ export async function agentInstallLibrary(
     });
     if (validationError) return validationError;
 
-    const searchResults = await ctx.libraryService.search({ query: libraryName });
+    const searchResults = await ctx.libraryService.search({
+      query: libraryName,
+    });
     const result = AgentLibraryHelper.processSearchResults({
       name: libraryName,
       searchResults,
@@ -134,7 +178,9 @@ export async function agentUninstallLibrary(
     });
     if (validationError) return validationError;
 
-    const searchResults = await ctx.libraryService.search({ query: libraryName });
+    const searchResults = await ctx.libraryService.search({
+      query: libraryName,
+    });
     const result = AgentLibraryHelper.processSearchResults({
       name: libraryName,
       searchResults,
@@ -154,7 +200,9 @@ export async function agentUninstallLibrary(
 
     ctx.outputChannels
       .getChannel('Arduino')
-      .appendLine(`Uninstalled ${libraryPackage.name}@${libraryPackage.installedVersion}`);
+      .appendLine(
+        `Uninstalled ${libraryPackage.name}@${libraryPackage.installedVersion}`
+      );
 
     return AgentLibraryHelper.formatLibraryMessage({
       name: libraryPackage.name,
@@ -166,10 +214,16 @@ export async function agentUninstallLibrary(
   }
 }
 
-function formatLibraryUninstallError(libraryName: string, error: any): string {
-  const errorMsg = error?.message || String(error);
+function formatLibraryUninstallError(
+  libraryName: string,
+  error: unknown
+): string {
+  const errorMsg = error instanceof Error ? error.message : String(error);
 
-  if (errorMsg.toLowerCase().includes('not found') || errorMsg.toLowerCase().includes('not installed')) {
+  if (
+    errorMsg.toLowerCase().includes('not found') ||
+    errorMsg.toLowerCase().includes('not installed')
+  ) {
     return `❌ Library "${libraryName}" is not installed or could not be found`;
   }
 
@@ -185,8 +239,12 @@ export interface BoardUrlToolsTiming {
 }
 
 export interface BoardUrlToolsContext {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   commands: { executeCommand(id: string, ...args: any[]): Promise<any> };
-  boardsService: { search(params: { query: string }): Promise<any[]> };
+  boardsService: {
+    search(params: { query: string }): Promise<BoardsPackage[]>;
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   configService: { getConfiguration(): Promise<any> };
   delay(ms: number): Promise<void>;
   timing: BoardUrlToolsTiming;
@@ -206,7 +264,11 @@ export async function agentAddBoardUrl(
   }
 
   try {
-    const { urlAlreadyExists } = await BoardUrlHelper.addToConfiguration(ctx.configService as any, url);
+    const { urlAlreadyExists } = await BoardUrlHelper.addToConfiguration(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ctx.configService as any,
+      url
+    );
 
     const updateResult = await updateAndWaitForPackageIndex(ctx);
 
@@ -218,39 +280,67 @@ export async function agentAddBoardUrl(
     });
   } catch (error) {
     spectreError('❌ Failed to add board manager URL:', error);
-    return `❌ Failed to add board manager URL: ${error}`;
+    return `❌ Failed to add board manager URL: ${formatUnknownError(error)}`;
   }
 }
 
 function validateBoardManagerUrl(rawUrl: string): string | null {
   const trimmed = rawUrl.trim();
-  if (trimmed.length > 2048) {
-    return '❌ Board manager URL is too long';
-  }
+  const lengthError = validateUrlLength(trimmed);
+  if (lengthError) return lengthError;
 
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    return '❌ Invalid board manager URL (not a valid URL)';
-  }
+  const parsedResult = tryParseUrl(trimmed);
+  if (!parsedResult.ok) return parsedResult.error;
 
-  const protocol = parsed.protocol.toLowerCase();
-  if (protocol !== 'https:' && protocol !== 'http:') {
-    return '❌ Board manager URL must be http(s)';
-  }
+  const parsed = parsedResult.url;
+  const protocolError = validateHttpProtocol(parsed);
+  if (protocolError) return protocolError;
 
-  // Disallow credentials in URLs (e.g., https://user:pass@host/...)
-  if (parsed.username || parsed.password) {
-    return '❌ Board manager URL must not contain credentials';
-  }
+  const credentialsError = validateNoCredentials(parsed);
+  if (credentialsError) return credentialsError;
 
-  // Most Arduino board indexes are JSON.
-  if (!parsed.pathname.toLowerCase().endsWith('.json')) {
-    return '❌ Board manager URL must end with .json';
-  }
+  const fileError = validateJsonPath(parsed);
+  if (fileError) return fileError;
 
   return null;
+}
+
+function validateUrlLength(url: string): string | null {
+  return url.length > 2048 ? '❌ Board manager URL is too long' : null;
+}
+
+function tryParseUrl(
+  url: string
+): { ok: true; url: URL } | { ok: false; error: string } {
+  try {
+    return { ok: true, url: new URL(url) };
+  } catch {
+    return {
+      ok: false,
+      error: '❌ Invalid board manager URL (not a valid URL)',
+    };
+  }
+}
+
+function validateHttpProtocol(url: URL): string | null {
+  const protocol = url.protocol.toLowerCase();
+  return protocol === 'https:' || protocol === 'http:'
+    ? null
+    : '❌ Board manager URL must be http(s)';
+}
+
+function validateNoCredentials(url: URL): string | null {
+  // Disallow credentials in URLs (e.g., https://user:pass@host/...)
+  return url.username || url.password
+    ? '❌ Board manager URL must not contain credentials'
+    : null;
+}
+
+function validateJsonPath(url: URL): string | null {
+  // Most Arduino board indexes are JSON.
+  return url.pathname.toLowerCase().endsWith('.json')
+    ? null
+    : '❌ Board manager URL must end with .json';
 }
 
 export async function agentRemoveBoardUrl(
@@ -262,7 +352,7 @@ export async function agentRemoveBoardUrl(
   }
 
   try {
-    const currentConfig = await (ctx.configService as any).getConfiguration();
+    const currentConfig = await ctx.configService.getConfiguration();
     if (!currentConfig.config) {
       return `❌ Failed to read configuration`;
     }
@@ -272,7 +362,10 @@ export async function agentRemoveBoardUrl(
       return `ℹ️ No board manager URLs configured in preferences`;
     }
 
-    const urlsToRemove = BoardUrlHelper.findUrlsToRemove(urlOrName, currentUrls);
+    const urlsToRemove = BoardUrlHelper.findUrlsToRemove(
+      urlOrName,
+      currentUrls
+    );
     if (urlsToRemove.length === 0) {
       return BoardUrlHelper.formatBoardUrlMessage({
         type: 'noMatch',
@@ -282,7 +375,9 @@ export async function agentRemoveBoardUrl(
     }
 
     const updatedUrls = await BoardUrlHelper.removeUrlsFromConfiguration(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ctx.configService as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ctx.commands as any,
       urlsToRemove,
       currentUrls
@@ -304,48 +399,68 @@ export async function agentRemoveBoardUrl(
     });
   } catch (error) {
     spectreError('❌ Failed to remove board manager URL:', error);
-    return `❌ Failed to remove board manager URL: ${error}`;
+    return `❌ Failed to remove board manager URL: ${formatUnknownError(
+      error
+    )}`;
   }
 }
 
 export async function agentFetchBoardUrls(
-  ctx: unknown,
+  _ctx: unknown,
   query: string
 ): Promise<string> {
-  if (!query || !query.trim()) {
+  const trimmedQuery = query?.trim();
+  if (!trimmedQuery) {
     return '❌ Board name is required to search for URLs';
   }
 
   const wikiUrl =
     'https://raw.githubusercontent.com/wiki/arduino/Arduino/Unofficial-list-of-3rd-party-boards-support-urls.md';
 
+  const FETCH_TIMEOUT_MS = 10_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
   try {
-    const response = await fetch(wikiUrl);
+    const response = await fetch(wikiUrl, {
+      signal: controller.signal,
+      cache: 'no-store',
+    });
     if (!response.ok) {
-      throw new Error(`Failed to fetch wiki: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `Failed to fetch wiki: ${response.status} ${response.statusText}`
+      );
     }
 
     const wikiContent = await response.text();
-    const matches = BoardHelper.parseWikiForBoardUrls(wikiContent, query);
+    const matches = BoardHelper.parseWikiForBoardUrls(
+      wikiContent,
+      trimmedQuery
+    );
 
     if (matches.length === 0) {
-      return `❌ No board manager URLs found for "${query}"\n\n💡 Try searching with a different term or check the Arduino Wiki manually:\nhttps://github.com/arduino/Arduino/wiki/Unofficial-list-of-3rd-party-boards-support-urls`;
+      return `❌ No board manager URLs found for "${trimmedQuery}"\n\n💡 Try searching with a different term or check the Arduino Wiki manually:\nhttps://github.com/arduino/Arduino/wiki/Unofficial-list-of-3rd-party-boards-support-urls`;
     }
 
-    return BoardHelper.formatBoardUrlResults(matches, query);
+    return BoardHelper.formatBoardUrlResults(matches, trimmedQuery);
   } catch (error) {
     spectreError('❌ Failed to fetch board URLs:', error);
-    return `❌ Failed to fetch board URLs from Arduino Wiki: ${error}\n\n💡 You can manually check: https://github.com/arduino/Arduino/wiki/Unofficial-list-of-3rd-party-boards-support-urls`;
+    return `❌ Failed to fetch board URLs from Arduino Wiki: ${formatUnknownError(
+      error
+    )}\n\n💡 You can manually check: https://github.com/arduino/Arduino/wiki/Unofficial-list-of-3rd-party-boards-support-urls`;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
 async function updateAndWaitForPackageIndex(
   ctx: BoardUrlToolsContext
 ): Promise<{ success: boolean; timedOut: boolean }> {
+  const MAX_WAIT_MS = 10_000;
   try {
     await ctx.commands.executeCommand('arduino-update-package-index');
 
-    const indexReady = await pollForPackageIndexReady(ctx, 10000);
+    const indexReady = await pollForPackageIndexReady(ctx, MAX_WAIT_MS);
     return { success: indexReady, timedOut: !indexReady };
   } catch (updateError) {
     spectreWarn('⚠️ Package index update failed:', updateError);
@@ -381,180 +496,6 @@ async function pollForPackageIndexReady(
 // Task Helpers
 // ============================================================================
 
-/**
- * Parses tasks from agent response text.
- */
-export function parseTasksFromResponse(text: string): AgentTask[] {
-  const tasks: AgentTask[] = [];
-  const lines = text.split('\n');
-  let taskId = 1;
-
-  for (const line of lines) {
-    // Match markdown checkbox patterns: - [ ], - [x], - [X], - [o], etc.
-    const checkboxMatch = line.match(/^\s*[-*]\s*\[([^\]]*)\]\s*(.+)/);
-
-    if (checkboxMatch) {
-      const checkbox = checkboxMatch[1].toLowerCase().trim();
-      const description = checkboxMatch[2].trim();
-
-      // Determine status from checkbox character
-      let status: 'pending' | 'in-progress' | 'completed' | 'failed' = 'pending';
-
-      if (isCompletedCheckbox(checkbox)) {
-        status = 'completed';
-      } else if (isInProgressCheckbox(checkbox)) {
-        status = 'in-progress';
-      } else if (isFailedCheckbox(checkbox, description)) {
-        status = 'failed';
-      }
-
-      tasks.push({
-        id: `task-${taskId++}`,
-        description,
-        status,
-        actionType: 'task',
-      });
-    }
-  }
-
-  return tasks;
-}
-
-function isCompletedCheckbox(checkbox: string): boolean {
-  return checkbox === 'x' || checkbox === '✓' || checkbox === '✔';
-}
-
-function isInProgressCheckbox(checkbox: string): boolean {
-  return checkbox === 'o' || checkbox === '~' || checkbox === '⏳';
-}
-
-function isFailedCheckbox(checkbox: string, description: string): boolean {
-  return (
-    checkbox === '!' ||
-    (checkbox === 'x' && description.toLowerCase().includes('failed'))
-  );
-}
-
-// ============================================================================
-// Response Utilities
-// ============================================================================
-
-/**
- * Checks if a task has completed successfully based on response text and action history.
- */
-export function taskCompletedSuccessfully(params: {
-  responseText: string | undefined;
-  actionHistory: Array<AgentActionHistoryEntry>;
-}): boolean {
-  const { responseText, actionHistory } = params;
-
-  const hasCompletionIndicators = hasCompletionKeywords(responseText);
-  const hadSuccessfulActions = actionHistory.some(
-    (action) => action.result?.success === true
-  );
-
-  return hasCompletionIndicators && hadSuccessfulActions;
-}
-
-/**
- * Checks if response text contains completion keywords.
- */
-export function hasCompletionKeywords(responseText: string | undefined): boolean {
-  if (!responseText) {
-    return false;
-  }
-
-  const text = responseText.toLowerCase();
-  const keywords = ['created', 'completed', 'done', 'ready', 'finished'];
-  return keywords.some((keyword) => text.includes(keyword));
-}
-
-/**
- * Marks all tasks as completed.
- */
-export function markAllTasksCompleted(
-  tasks: AgentTask[] | undefined
-): AgentTask[] | undefined {
-  if (!tasks || tasks.length === 0) {
-    return tasks;
-  }
-
-  return tasks.map((task) => ({
-    ...task,
-    status: 'completed' as const,
-  }));
-}
-
-/**
- * Formats the completion message shown to the user.
- */
-export function formatCompletionMessage(iteration: number): string {
-  return `\n\n---\n\n### ✅ Task Completed\n\nCompleted in **${iteration}** iteration${
-    iteration > 1 ? 's' : ''
-  }.\n`;
-}
-
-/**
- * Cleans agent response text by removing internal markers and extracting tasks.
- */
-export function cleanAgentResponse(params: {
-  responseText: string;
-  thoughtsTokens?: number;
-}): CleanAgentResponseResult {
-  const { responseText, thoughtsTokens } = params;
-
-  let cleanText = responseText;
-
-  // Remove agent mode headers
-  cleanText = cleanText.replace(/^##?\s*🤖\s*Agent Mode\s*\n*/gim, '');
-
-  // Remove iteration markers
-  cleanText = cleanText.replace(
-    /^###?\s*🔄\s*Iteration\s+\d+\/\d+\s*\n*/gim,
-    ''
-  );
-
-  // Remove analyzing messages
-  cleanText = cleanText.replace(/^\*Analyzing your request.*?\*\s*\n*/gim, '');
-
-  // Remove redundant code blocks
-  cleanText = RenderingHelpers.suppressRedundantCodeBlocks(cleanText);
-
-  // Parse tasks from the full original text, then remove task list(s) from the visible message.
-  const tasks = parseTasksFromResponse(responseText);
-  cleanText = stripTasksFromMessageText(cleanText);
-
-  // Add thinking badge if available
-  if (thoughtsTokens && thoughtsTokens > 0) {
-    const thinkingBadge = `*💭 Used ${thoughtsTokens} thinking tokens*\n\n`;
-    cleanText = thinkingBadge + cleanText;
-  }
-
-  // Remove excessive line breaks and trim
-  cleanText = cleanText.replace(/\n{3,}/g, '\n\n');
-  cleanText = cleanText.replace(/^[\s\-]+|[\s\-]+$/g, '');
-
-  return { cleanText, tasks };
-}
-
-/**
- * Strips task list markers from message text.
- */
-function stripTasksFromMessageText(text: string): string {
-  let cleanText = text;
-
-  // Remove the entire task list section
-  cleanText = cleanText.replace(
-    /(?:Here's the plan:|Plan:|Tasks?:)?\s*\n(?:- \[[xo ]\] [^\n]+\n?)+/gim,
-    ''
-  );
-
-  // Also remove standalone task lines scattered in text
-  cleanText = cleanText.replace(/^- \[[xo ]\] [^\n]+\n?/gim, '');
-
-  return cleanText;
-}
-
 // ============================================================================
 // Library Helpers
 // ============================================================================
@@ -576,8 +517,10 @@ export class AgentLibraryHelper {
   /**
    * Builds case-insensitive map from search results.
    */
-  static buildLibraryMap(searchResults: any[]): Map<string, any> {
-    const map = new Map<string, any>();
+  static buildLibraryMap(
+    searchResults: LibraryPackage[]
+  ): Map<string, LibraryPackage> {
+    const map = new Map<string, LibraryPackage>();
 
     for (const result of searchResults) {
       if (!result?.name) {
@@ -598,10 +541,10 @@ export class AgentLibraryHelper {
    */
   static findLibraryInResults(
     libraryName: string,
-    libraryMap: Map<string, any>
-  ): any | undefined {
+    libraryMap: Map<string, LibraryPackage>
+  ): LibraryPackage | undefined {
     let libraryPackage = libraryMap.get(libraryName.toLowerCase());
-    
+
     if (!libraryPackage) {
       const firstResult = libraryMap.values().next();
       if (firstResult.done || !firstResult.value) {
@@ -609,14 +552,16 @@ export class AgentLibraryHelper {
       }
       libraryPackage = firstResult.value;
     }
-    
+
     return libraryPackage;
   }
 
   /**
    * Processes search results and resolves library package.
    */
-  static processSearchResults(params: LibrarySearchParams): LibrarySearchResult {
+  static processSearchResults(
+    params: LibrarySearchParams
+  ): LibrarySearchResult {
     const { name, searchResults } = params;
 
     if (!searchResults || searchResults.length === 0) {
@@ -659,7 +604,9 @@ export class AgentLibraryHelper {
       case 'noVersions':
         return `❌ No versions available for library "${name}"`;
       case 'alreadyInstalled':
-        return `✅ Library "${name}" is already installed (version ${version || 'unknown'})`;
+        return `✅ Library "${name}" is already installed (version ${
+          version || 'unknown'
+        })`;
       case 'notInstalled':
         return `⚠️ Library "${name}" is not currently installed`;
       case 'installSuccess':

@@ -1,22 +1,12 @@
-/**
- * Executes agent function calls (with loop detection and UI streaming updates).
- *
- * @author Tazul Islam
- */
-
 import * as RenderingHelpers from '../ui/message-rendering';
+import { AgentActionHistoryRecord } from './agent-utils';
 
-export type AgentFunctionCall = { name: string; args: Record<string, any> };
-
-export type AgentActionHistoryRecord = {
-  functionName: string;
-  result?: { success: boolean; error?: string };
-};
+export type AgentFunctionCall = { name: string; args: Record<string, unknown> };
 
 export type AgentLoopDetected = {
   signature: string;
   functionName: string;
-  args: any;
+  args: unknown;
 };
 
 export type MutateLastAssistant = (
@@ -24,57 +14,64 @@ export type MutateLastAssistant = (
   requestSeq: number
 ) => void;
 
-export async function processFunctionCalls(params: {
+interface FunctionResponse {
+  success: boolean;
+  result?: string;
+  error?: string;
+  status: string;
+  instruction: string;
+}
+
+export type ConversationHistoryItem = {
+  role: string;
+  name?: string;
+  response?: unknown;
+  content?: string;
+};
+
+export interface ProcessFunctionCallsParams {
   functionCalls: AgentFunctionCall[];
   detectLoop: (calls: AgentFunctionCall[]) => AgentLoopDetected | null;
   actionHistory: AgentActionHistoryRecord[];
-  conversationHistory: Array<any>;
+  conversationHistory: ConversationHistoryItem[];
   requestSeq: number;
   shouldAbort: () => boolean;
   mutateLastAssistant: MutateLastAssistant;
   executeFunctionCall: (
     functionCall: AgentFunctionCall
   ) => Promise<{ success: boolean; result?: string; error?: string }>;
-  logError: (...args: any[]) => void;
-}): Promise<boolean> {
-  const {
-    functionCalls,
-    detectLoop,
-    actionHistory,
-    conversationHistory,
-    requestSeq,
-    shouldAbort,
-    mutateLastAssistant,
-    executeFunctionCall,
-    logError,
-  } = params;
+  onFunctionCallResult?: (args: {
+    functionCall: AgentFunctionCall;
+    result: { success: boolean; result?: string; error?: string };
+  }) => void;
+  logError: (...args: unknown[]) => void;
+}
+
+export async function processFunctionCalls(
+  params: ProcessFunctionCallsParams
+): Promise<boolean> {
+  const { functionCalls, detectLoop } = params;
 
   const loopDetected = detectLoop(functionCalls);
-  if (handleLoopDetection(loopDetected, requestSeq, mutateLastAssistant, logError)) {
+  if (handleLoopDetection(loopDetected, params)) {
     return true;
   }
 
-  await executeFunctionCallsSequence({
-    functionCalls,
-    actionHistory,
-    conversationHistory,
-    requestSeq,
-    shouldAbort,
-    mutateLastAssistant,
-    executeFunctionCall,
-    logError,
-  });
+  await executeFunctionCallsSequence(params);
 
   return false;
 }
 
 function handleLoopDetection(
   loopDetected: AgentLoopDetected | null,
-  requestSeq: number,
-  mutateLastAssistant: MutateLastAssistant,
-  logError: (...args: any[]) => void
+  context: Pick<
+    ProcessFunctionCallsParams,
+    'requestSeq' | 'mutateLastAssistant' | 'logError'
+  >
 ): boolean {
   if (!loopDetected) return false;
+
+  const { requestSeq, mutateLastAssistant, logError } = context;
 
   const prettyArgs = JSON.stringify(loopDetected.args, null, 2);
   logError(`🔴 Infinite loop detected: ${loopDetected.signature}`);
@@ -99,18 +96,9 @@ function handleLoopDetection(
   return true;
 }
 
-async function executeFunctionCallsSequence(params: {
-  functionCalls: AgentFunctionCall[];
-  actionHistory: AgentActionHistoryRecord[];
-  conversationHistory: Array<any>;
-  requestSeq: number;
-  shouldAbort: () => boolean;
-  mutateLastAssistant: MutateLastAssistant;
-  executeFunctionCall: (
-    functionCall: AgentFunctionCall
-  ) => Promise<{ success: boolean; result?: string; error?: string }>;
-  logError: (...args: any[]) => void;
-}): Promise<void> {
+async function executeFunctionCallsSequence(
+  params: ProcessFunctionCallsParams
+): Promise<void> {
   const {
     functionCalls,
     actionHistory,
@@ -119,13 +107,18 @@ async function executeFunctionCallsSequence(params: {
     shouldAbort,
     mutateLastAssistant,
     executeFunctionCall,
+    onFunctionCallResult,
     logError,
   } = params;
 
   const multipleActions = functionCalls.length > 1;
 
   if (multipleActions) {
-    showMultipleActionsHeader(functionCalls.length, requestSeq, mutateLastAssistant);
+    showMultipleActionsHeader(
+      functionCalls.length,
+      requestSeq,
+      mutateLastAssistant
+    );
   }
 
   for (const functionCall of functionCalls) {
@@ -140,10 +133,15 @@ async function executeFunctionCallsSequence(params: {
       mutateLastAssistant
     );
 
-    const result = await executeWithErrorHandling(functionCall, executeFunctionCall, logError);
+    const result = await executeWithErrorHandling(
+      functionCall,
+      executeFunctionCall,
+      logError
+    );
     updateActionHistory(actionHistory, functionCall.name, result);
     displayExecutionResult(result, requestSeq, mutateLastAssistant);
     addToConversationHistory(conversationHistory, functionCall.name, result);
+    onFunctionCallResult?.({ functionCall, result });
   }
 }
 
@@ -153,13 +151,10 @@ function showMultipleActionsHeader(
   mutateLastAssistant: MutateLastAssistant
 ): void {
   const functionSection = `\n**Executing ${count} actions...**\n\n`;
-  mutateLastAssistant(
-    (prev) => {
-      const separator = prev.trim() ? '\n\n' : '';
-      return prev + separator + functionSection;
-    },
-    requestSeq
-  );
+  mutateLastAssistant((prev) => {
+    const separator = prev.trim() ? '\n\n' : '';
+    return prev + separator + functionSection;
+  }, requestSeq);
 }
 
 function showFunctionExecution(
@@ -168,17 +163,20 @@ function showFunctionExecution(
   requestSeq: number,
   mutateLastAssistant: MutateLastAssistant
 ): void {
-  const functionDisplay = formatFunctionExecution(functionName, multipleActions);
-  mutateLastAssistant(
-    (prev) => {
-      const separator = prev.trim() && !prev.endsWith('\n\n') ? '\n' : '';
-      return prev + separator + functionDisplay;
-    },
-    requestSeq
+  const functionDisplay = formatFunctionExecution(
+    functionName,
+    multipleActions
   );
+  mutateLastAssistant((prev) => {
+    const separator = prev.trim() && !prev.endsWith('\n\n') ? '\n' : '';
+    return prev + separator + functionDisplay;
+  }, requestSeq);
 }
 
-function formatFunctionExecution(functionName: string, multipleActions: boolean): string {
+function formatFunctionExecution(
+  functionName: string,
+  multipleActions: boolean
+): string {
   const funcIcon = RenderingHelpers.getFunctionIcon(functionName);
   const funcLabel = RenderingHelpers.getFunctionLabel(functionName);
   const prefix = multipleActions ? '' : '\n';
@@ -190,7 +188,7 @@ async function executeWithErrorHandling(
   executeFunctionCall: (
     functionCall: AgentFunctionCall
   ) => Promise<{ success: boolean; result?: string; error?: string }>,
-  logError: (...args: any[]) => void
+  logError: (...args: unknown[]) => void
 ): Promise<{ success: boolean; result?: string; error?: string }> {
   try {
     return await executeFunctionCall(functionCall);
@@ -206,7 +204,7 @@ async function executeWithErrorHandling(
 function updateActionHistory(
   actionHistory: AgentActionHistoryRecord[],
   functionName: string,
-  result: any
+  result: { success: boolean; result?: string; error?: string }
 ): void {
   const lastAction = actionHistory[actionHistory.length - 1];
   if (lastAction && lastAction.functionName === functionName) {
@@ -230,17 +228,19 @@ function displayExecutionResult(
 }
 
 function addToConversationHistory(
-  conversationHistory: Array<{ role: string; name?: string; response?: any }>,
+  conversationHistory: ConversationHistoryItem[],
   functionName: string,
   result: { success: boolean; result?: string; error?: string }
 ): void {
-  const functionResponse = {
+  const functionResponse: FunctionResponse = {
     success: result.success,
     result: result.result,
     error: result.error,
     status: result.success
       ? `✅ SUCCESS: Function ${functionName} completed successfully.`
-      : `❌ FAILED: Function ${functionName} failed. Error: ${result.error || 'Unknown error'}`,
+      : `❌ FAILED: Function ${functionName} failed. Error: ${
+          result.error || 'Unknown error'
+        }`,
     instruction: result.success
       ? `This function succeeded. DO NOT call it again. Move to the next step or finish.`
       : `This function failed. Analyze the error and try a DIFFERENT approach. DO NOT retry the same function with the same arguments.`,

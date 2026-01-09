@@ -20,10 +20,9 @@ import {
   spectreError,
 } from '../../../common/protocol/spectre-types';
 
-function withTokenCount<T extends { text?: string; summary?: string; estimatedTokens?: number }>(
-  obj: T,
-  contentType?: 'code' | 'json' | 'natural' | 'mixed'
-): T {
+function withTokenCount<
+  T extends { text?: string; summary?: string; estimatedTokens?: number }
+>(obj: T, contentType?: 'code' | 'json' | 'natural' | 'mixed'): T {
   if (obj.estimatedTokens === undefined) {
     const text = obj.text || obj.summary || '';
     obj.estimatedTokens = TokenCounter.estimate(text, contentType);
@@ -98,13 +97,15 @@ export class MemoryManager {
   async addMessage(
     memory: ConversationMemory,
     role: 'user' | 'assistant',
-    text: string
+    text: string,
+    parts?: any[]
   ): Promise<void> {
     const message: RawMessage = withTokenCount(
       {
         id: `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         role,
         text,
+        parts,
         timestamp: Date.now(),
       },
       role === 'user' ? 'mixed' : 'natural'
@@ -338,8 +339,11 @@ ${conversationText}
     }
 
     try {
-      const { recentSummary, oldSummaries } = this.splitSummariesForCompression(memoryBank);
-      const compressedSummary = await this.generateCompressedSummary(oldSummaries);
+      const { recentSummary, oldSummaries } =
+        this.splitSummariesForCompression(memoryBank);
+      const compressedSummary = await this.generateCompressedSummary(
+        oldSummaries
+      );
 
       if (compressedSummary) {
         this.updateMemoryBankWithCompression(
@@ -357,7 +361,9 @@ ${conversationText}
   /**
    * Splits summaries into recent (to keep) and old (to compress).
    */
-  private splitSummariesForCompression(memoryBank: ConversationMemory['memoryBank']): {
+  private splitSummariesForCompression(
+    memoryBank: ConversationMemory['memoryBank']
+  ): {
     recentSummary: SummaryEntry;
     oldSummaries: SummaryEntry[];
   } {
@@ -461,7 +467,7 @@ ${combinedText}
       0
     );
     const compressionRatio = Math.round(
-      (1 - compressedSummary.estimatedTokens! / originalTokens) * 100
+      (1 - (compressedSummary.estimatedTokens || 0) / originalTokens) * 100
     );
 
     spectreLog(
@@ -490,10 +496,7 @@ ${combinedText}
     let estimatedTokens = 0;
 
     // 1. Add memory bank summaries
-    const memoryBankTokens = this.addMemoryBank(
-      memory.memoryBank,
-      parts
-    );
+    const memoryBankTokens = this.addMemoryBank(memory.memoryBank, parts);
     estimatedTokens += memoryBankTokens;
 
     // 2. Add recent messages

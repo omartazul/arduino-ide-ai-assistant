@@ -106,7 +106,6 @@ export class MonitorWidget extends ReactWidget {
     this.clearOutputEmitter.fire(undefined);
     this.update();
   }
-  
 
   override dispose(): void {
     this.toDisposeOnReset.dispose();

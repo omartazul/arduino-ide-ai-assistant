@@ -17,7 +17,10 @@ export interface StreamControllerDeps {
   streamFallbackTimeoutMs: number;
   setBusyDone: () => void;
   focusInput: () => void;
-  mutateLastAssistant: (mutator: (text: string) => string, requestSeq: number) => Promise<void>;
+  mutateLastAssistant: (
+    mutator: (text: string) => string,
+    requestSeq: number
+  ) => Promise<void>;
 }
 
 /**
@@ -76,7 +79,9 @@ export class StreamController {
     }
 
     if (this.currentRequestSeq === undefined) {
-      spectreWarn('Received stream event for unknown request sequence - ignoring');
+      spectreWarn(
+        'Received stream event for unknown request sequence - ignoring'
+      );
       return;
     }
 
@@ -100,7 +105,10 @@ export class StreamController {
 
   private handleStreamError(error: string, requestSeq: number): void {
     this.stop();
-    void this.deps.mutateLastAssistant((prev) => prev + `\n\nError: ${error}`, requestSeq);
+    void this.deps.mutateLastAssistant(
+      (prev) => prev + `\n\nError: ${error}`,
+      requestSeq
+    );
     this.deps.setBusyDone();
     this.deps.focusInput();
   }
@@ -115,7 +123,10 @@ export class StreamController {
     if (this.streamBuffer.length > 0) {
       const remaining = this.streamBuffer;
       this.streamBuffer = '';
-      void this.deps.mutateLastAssistant((prev) => prev + remaining, requestSeq);
+      void this.deps.mutateLastAssistant(
+        (prev) => prev + remaining,
+        requestSeq
+      );
     }
     this.deps.setBusyDone();
     this.deps.focusInput();
@@ -141,7 +152,10 @@ export class StreamController {
       if (this.streamDone && this.streamTicker) {
         spectreWarn('Stream ticker timeout - forcing completion');
         this.stop();
-        if (this.streamBuffer.length > 0 && this.currentRequestSeq !== undefined) {
+        if (
+          this.streamBuffer.length > 0 &&
+          this.currentRequestSeq !== undefined
+        ) {
           const seq = this.currentRequestSeq;
           const remaining = this.streamBuffer;
           this.streamBuffer = '';

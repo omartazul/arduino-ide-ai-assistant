@@ -9,16 +9,18 @@ export interface LoopDetectorActionRecord {
   normalizedSignature: string;
   timestamp: number;
   functionName: string;
-  args: any;
+  args: unknown;
   result?: { success: boolean; error?: string };
 }
 
-export type DetectLoopResult =
-  | { signature: string; functionName: string; args: any }
-  | null;
+export type DetectLoopResult = {
+  signature: string;
+  functionName: string;
+  args: unknown;
+} | null;
 
 export type DetectLoopFn = (
-  functionCalls: Array<{ name: string; args: any }>
+  functionCalls: Array<{ name: string; args: Record<string, unknown> }>
 ) => DetectLoopResult;
 
 export function createLoopDetector(params: {
@@ -33,28 +35,34 @@ export function createLoopDetector(params: {
   const {
     warn,
     now = () => Date.now(),
-    loopDetectionWindow = 5,
-    maxIdenticalActions = 1,
+    loopDetectionWindow = 8,
+    maxIdenticalActions = 2,
   } = params;
 
   const actionHistory: Array<LoopDetectorActionRecord> = [];
 
-  const normalizeArgs = (name: string, args: any): any => {
-    const normalized: any = {};
+  const normalizeArgs = (
+    name: string,
+    args: Record<string, unknown>
+  ): Record<string, unknown> => {
+    const normalized: Record<string, unknown> = {};
 
     for (const key in args) {
       let value = args[key];
 
       if (typeof value === 'string') {
-        value = value.toLowerCase().trim().replace(/\s+/g, ' ');
+        // Use a temporary variable to perform string operations
+        // This avoids TypeScript confusion about narrowing mutable 'unknown' type
+        let strValue = value.toLowerCase().trim().replace(/\s+/g, ' ');
 
         if (name === 'select_board' || name === 'search_boards') {
-          value = value.replace(/^arduino\s+/i, '').trim();
+          strValue = strValue.replace(/^arduino\s+/i, '').trim();
         } else if (name === 'install_library' || name === 'uninstall_library') {
-          value = value.trim();
+          strValue = strValue.trim();
         } else if (name === 'select_port') {
-          value = value.trim();
+          strValue = strValue.trim();
         }
+        value = strValue;
       }
 
       normalized[key] = value;
@@ -63,25 +71,31 @@ export function createLoopDetector(params: {
     return normalized;
   };
 
-  const getSortedArgsSignature = (name: string, args: any): string => {
+  const getSortedArgsSignature = (
+    name: string,
+    args: Record<string, unknown>
+  ): string => {
     const sortedArgs = Object.keys(args || {})
       .sort()
       .reduce((acc, key) => {
         acc[key] = args[key];
         return acc;
-      }, {} as any);
+      }, {} as Record<string, unknown>);
 
     return `${name}:${JSON.stringify(sortedArgs)}`;
   };
 
-  const getSortedNormalizedArgsSignature = (name: string, args: any): string => {
+  const getSortedNormalizedArgsSignature = (
+    name: string,
+    args: Record<string, unknown>
+  ): string => {
     const normalized = normalizeArgs(name, args || {});
     const sortedArgs = Object.keys(normalized)
       .sort()
       .reduce((acc, key) => {
         acc[key] = normalized[key];
         return acc;
-      }, {} as any);
+      }, {} as Record<string, unknown>);
 
     return `${name}:${JSON.stringify(sortedArgs)}`;
   };
@@ -93,26 +107,39 @@ export function createLoopDetector(params: {
     }
   };
 
-  const countBy = (selector: (record: LoopDetectorActionRecord) => string): Map<string, number> => {
-    const counts = new Map<string, number>();
-    for (const record of actionHistory) {
-      const key = selector(record);
-      counts.set(key, (counts.get(key) || 0) + 1);
+  const countTrailingMatches = (params: {
+    signature: string;
+    selector: (record: LoopDetectorActionRecord) => string;
+  }): number => {
+    const { signature, selector } = params;
+    let count = 0;
+    for (let i = actionHistory.length - 1; i >= 0; i--) {
+      if (selector(actionHistory[i]) === signature) {
+        count++;
+      } else {
+        break;
+      }
     }
-    return counts;
+    return count;
   };
 
-  const checkRepeatedFailures = (functionName: string | undefined): DetectLoopResult => {
+  const checkRepeatedFailures = (
+    functionName: string | undefined
+  ): DetectLoopResult => {
     if (!functionName) {
       return null;
     }
 
     const recentFailures = actionHistory
       .slice(-5)
-      .filter((r) => r.functionName === functionName && r.result?.success === false);
+      .filter(
+        (r) => r.functionName === functionName && r.result?.success === false
+      );
 
     if (recentFailures.length >= 3) {
-      warn(`🔴 Loop detected: ${functionName} failed ${recentFailures.length} times`);
+      warn(
+        `🔴 Loop detected: ${functionName} failed ${recentFailures.length} times`
+      );
       return recentFailures[recentFailures.length - 1];
     }
 
@@ -126,17 +153,18 @@ export function createLoopDetector(params: {
     recordToReturn: LoopDetectorActionRecord;
   }): DetectLoopResult => {
     const { signature, signatureName, selector, recordToReturn } = params;
-    const counts = countBy(selector);
-    const count = counts.get(signature) || 0;
+    const count = countTrailingMatches({ signature, selector });
     if (count > maxIdenticalActions) {
-      warn(`🔴 Loop detected: ${signatureName} signature repeated ${count} times`);
+      warn(
+        `🔴 Loop detected: ${signatureName} signature repeated ${count} consecutive times`
+      );
       return recordToReturn;
     }
     return null;
   };
 
   const detectLoop: DetectLoopFn = (
-    functionCalls: Array<{ name: string; args: any }>
+    functionCalls: Array<{ name: string; args: Record<string, unknown> }>
   ): DetectLoopResult => {
     const exactSig = functionCalls
       .map((fc) => getSortedArgsSignature(fc.name, fc.args))
@@ -146,7 +174,7 @@ export function createLoopDetector(params: {
       .map((fc) => getSortedNormalizedArgsSignature(fc.name, fc.args))
       .join('|');
 
-    const record = {
+    const record: LoopDetectorActionRecord = {
       signature: exactSig,
       normalizedSignature: normalizedSig,
       timestamp: now(),

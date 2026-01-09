@@ -39,7 +39,7 @@ const testLines: TestLine[] = [
       ],
       charCount: 10,
     },
-    expectedJoined: 'Hello\nDog!'
+    expectedJoined: 'Hello\nDog!',
   },
   {
     messages: ['Dog!'],

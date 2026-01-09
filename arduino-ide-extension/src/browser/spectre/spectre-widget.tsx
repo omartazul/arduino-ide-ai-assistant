@@ -18,10 +18,7 @@ import {
   SpectreQuotaUpdate,
 } from '../../common/protocol/spectre-ai-service';
 import { SpectreAiFrontendClient } from './clients/ai-frontend-client';
-import {
-  spectreWarn,
-  spectreError,
-} from '../../common/protocol/spectre-types';
+import { spectreWarn, spectreError } from '../../common/protocol/spectre-types';
 import { BoardHelper } from './board/board-helpers';
 import { StorageHelper } from './feature/storage-helper';
 import * as SketchUtilities from './feature/sketch-utilities';
@@ -37,8 +34,11 @@ import { SpectreView } from './ui/spectre-view';
 import { StreamController } from './ui/stream-controller';
 import * as ChatTools from './chat/chat-tools';
 import * as SessionActions from './chat/chat-session-manager';
+import type { ChatManagerState } from './chat/chat-session-manager';
 import type { ChatSession } from './ui/widget-rendering';
-import type { AgentTask } from './agent/agent-tools';
+import type { ConversationMemory } from './memory/memory-types';
+import { AgentTask } from './agent/agent-utils';
+import { Message } from '@theia/core/shared/@phosphor/messaging';
 
 /**
  * Parameters for memory comparison operations.
@@ -47,7 +47,7 @@ import type { AgentTask } from './agent/agent-tools';
 interface MemoryComparisonParams {
   newText: string;
   oldText: string;
-  memory: any;
+  memory: ConversationMemory | undefined;
 }
 
 /**
@@ -85,9 +85,7 @@ const WIDGET_TIMING = {
 
 import { ArduinoPreferences } from '../arduino-preferences';
 import { StorageService } from '@theia/core/lib/browser/storage-service';
-import {
-  SketchesServiceClientImpl,
-} from '../sketches-service-client-impl';
+import { SketchesServiceClientImpl } from '../sketches-service-client-impl';
 import { CommandService } from '@theia/core/lib/common/command';
 import { OutputChannelManager } from '../theia/output/output-channel';
 import { EditorManager } from '../theia/editor/editor-manager';
@@ -98,12 +96,36 @@ import { MonitorManagerProxyClient } from '../../common/protocol';
 import { LibraryService } from '../../common/protocol/library-service';
 import { ConfigService } from '../../common/protocol/config-service';
 import { MemoryManager } from './memory/memory-manager';
-import * as SessionMemoryTools from './memory/session-memory-tools';
 import { TokenCounter } from './utils/token-counter';
 
 // ChatMessage/ChatSession types live in `ui/widget-rendering.tsx`.
 
 // RequestLog/DailyTracker types live in `chat/chat-tools.ts`.
+
+interface SpectreState extends ChatManagerState {
+  input: string;
+  busy: boolean;
+  retryable?: boolean;
+  requestSeq: number;
+  currentAbortKey?: string;
+  requestSessionId?: number;
+  quotaUsed: number;
+  quotaCapacity: number;
+  rpmUsed: number;
+  rpmLimit: number;
+  queueSize: number;
+  nextAvailableMs: number;
+  now: number;
+  tasksExpanded: boolean;
+  tasksClosed: boolean;
+  tasks: AgentTask[];
+  codeDiff?: {
+    oldCode: string;
+    newCode: string;
+    timestamp: number;
+    expanded: boolean;
+  };
+}
 
 /**
  * Main widget for the Spectre AI assistant.
@@ -149,50 +171,11 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
   @inject(MemoryManager) private readonly memoryManager!: MemoryManager;
 
   // Cache normalized board data for O(1) lookups
-  private boardSearchCache: ReturnType<typeof BoardHelper.buildBoardCache> | null = null;
+  private boardSearchCache: ReturnType<
+    typeof BoardHelper.buildBoardCache
+  > | null = null;
 
-  private stateData: {
-    sessions: ChatSession[];
-    active: number;
-    input: string;
-    busy: boolean;
-    error?: string;
-    retryable?: boolean;
-    requestSeq: number;
-    sketchKey?: string;
-    currentAbortKey?: string;
-    requestSessionId?: number;
-    quotaUsed: number;
-    quotaCapacity: number;
-    rpmUsed: number;
-    rpmLimit: number;
-    queueSize: number;
-    nextAvailableMs: number;
-    now: number;
-    // Request tracking
-    requestLogs: ChatTools.RequestLog[];
-    dailyTracker: ChatTools.DailyTracker;
-    // Agent task tracking
-    tasks: AgentTask[];
-    tasksExpanded: boolean;
-    tasksClosed: boolean;
-    // Code diff tracking for showing changes
-    codeDiff?: {
-      oldCode: string;
-      newCode: string;
-      timestamp: number;
-      expanded: boolean;
-    };
-    // Memory system stats for UI display
-    memoryStats?: {
-      recentMessages: number;
-      summaries: number;
-      totalTokens: number;
-      memoryBankTokens: number;
-      compressionRatio: string;
-      isSummarizing?: boolean; // Show loading indicator
-    };
-  } = {
+  private stateData: SpectreState = {
     sessions: [{ id: Date.now(), title: 'New Chat', messages: [] }],
     active: 0,
     input: '',
@@ -330,7 +313,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
    * Lifecycle: Called when widget is attached to the DOM.
    * Establishes backend connection and syncs quota state.
    */
-  protected override async onAfterAttach(msg: any): Promise<void> {
+  protected override async onAfterAttach(msg: Message): Promise<void> {
     super.onAfterAttach(msg);
 
     // Subscribe to AI client events for streaming responses and quota updates
@@ -350,21 +333,25 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
     });
 
     // Listen for model preference changes to refresh quota when user switches models
-    const prefDisposable = (this.prefs as any).onPreferenceChanged?.(
-      (e: any) => {
-        if (e.preferenceName === 'arduino.spectre.model') {
-          // Update RPM limit immediately when model changes
-          this.setStateData({ rpmLimit: this.getRpmLimit() });
-          // Then refresh quota from backend
-          WidgetUtilities.refreshQuotaForCurrentModel({
-            ai: this.ai,
-            model: this.prefs['arduino.spectre.model'],
-            getFallbackRpmLimit: () => this.getRpmLimit(),
-            setStateData: (patch) => this.setStateData(patch),
-          });
-        }
+    const prefDisposable = (
+      this.prefs as unknown as {
+        onPreferenceChanged?: (cb: (e: { preferenceName: string }) => void) => {
+          dispose: () => void;
+        };
       }
-    );
+    ).onPreferenceChanged?.((e) => {
+      if (e.preferenceName === 'arduino.spectre.model') {
+        // Update RPM limit immediately when model changes
+        this.setStateData({ rpmLimit: this.getRpmLimit() });
+        // Then refresh quota from backend
+        WidgetUtilities.refreshQuotaForCurrentModel({
+          ai: this.ai,
+          model: this.prefs['arduino.spectre.model'],
+          getFallbackRpmLimit: () => this.getRpmLimit(),
+          setStateData: (patch) => this.setStateData(patch),
+        });
+      }
+    });
     if (prefDisposable) {
       this.toDispose.push(prefDisposable);
     }
@@ -373,7 +360,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
     // This ensures correct display even if backend sync is delayed
     this.setStateData({ rpmLimit: this.getRpmLimit() });
   }
-  protected override onBeforeDetach(msg: any): void {
+  protected override onBeforeDetach(msg: Message): void {
     super.onBeforeDetach(msg);
 
     // Widget detach cleanup
@@ -381,7 +368,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
     this.stopClock();
   }
 
-  protected override onBeforeShow(msg: any): void {
+  protected override onBeforeShow(msg: Message): void {
     super.onBeforeShow(msg);
   }
 
@@ -390,7 +377,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
    * Focuses the input textarea, lazy-loads react-markdown library,
    * and hooks into sketch change events for context awareness.
    */
-  protected override async onActivateRequest(msg: any): Promise<void> {
+  protected override async onActivateRequest(msg: Message): Promise<void> {
     super.onActivateRequest(msg);
     // Prefer focusing the input textarea so the widget accepts focus promptly.
     // Fall back to container if input is disabled or missing.
@@ -401,7 +388,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
         // Place caret at end
         try {
           input.selectionStart = input.selectionEnd = input.value.length;
-        } catch (err) {        }
+        } catch (err) {}
       } else {
         // Ensure the container is at least focusable
         (this.node as HTMLElement).setAttribute(
@@ -435,20 +422,22 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
    * Focuses the input textarea and places the caret at the end.
    * Retries with requestAnimationFrame to handle timing issues.
    */
-  private isInputFocusable(input: HTMLTextAreaElement | null | undefined): boolean {
+  private isInputFocusable(
+    input: HTMLTextAreaElement | null | undefined
+  ): boolean {
     return !!input && !input.disabled && input.offsetParent !== null;
   }
 
   private focusInput(): void {
     const tryFocus = () => {
       const input = this.inputRef;
-      if (this.isInputFocusable(input)) {
-        input!.focus();
+      if (this.isInputFocusable(input) && input) {
+        input.focus();
         try {
           // Only move cursor to end if input is empty (after send/clear)
           // Otherwise preserve current position for user editing
-          if (input!.value.length === 0) {
-            input!.selectionStart = input!.selectionEnd = input!.value.length;
+          if (input.value.length === 0) {
+            input.selectionStart = input.selectionEnd = input.value.length;
           }
         } catch (err) {
           // Cursor positioning failed silently
@@ -466,7 +455,11 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
 
   private isNetworkError(message: string): boolean {
     const msg = message.toLowerCase();
-    return msg.includes('network') || msg.includes('fetch') || msg.includes('connection');
+    return (
+      msg.includes('network') ||
+      msg.includes('fetch') ||
+      msg.includes('connection')
+    );
   }
 
   private getSpectreMode(): 'basic' | 'agent' {
@@ -511,7 +504,8 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
       sketchesClient: this.sketchesClient,
       storage: this.storage,
       getPacificDate: () => ConfigHelpers.getPacificDate(),
-      setStateData: (patch: Partial<any>) => this.setStateData(patch),
+      setStateData: (patch: Partial<ChatManagerState>) =>
+        this.setStateData(patch),
       updateMemoryStats: () => this.updateMemoryStats(),
       migrateSessions: (oldSessions: ChatSession[]) =>
         this.migrateSessions(oldSessions),
@@ -563,10 +557,10 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
   private async migrateSessions(
     oldSessions: ChatSession[]
   ): Promise<ChatSession[]> {
-    return (await SessionMemoryTools.migrateSessions({
+    return SessionActions.migrateSessions({
       deps: this.getSessionMemoryDeps(),
       oldSessions,
-    })) as any;
+    });
   }
 
   /**
@@ -576,10 +570,10 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
   private async createSessionWithMemory(
     sessionId?: number
   ): Promise<ChatSession> {
-    return (await SessionMemoryTools.createSessionWithMemory({
+    return SessionActions.createSessionWithMemory({
       deps: this.getSessionMemoryDeps(),
       sessionId,
-    })) as any;
+    });
   }
 
   /**
@@ -587,7 +581,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
    * Called after each message is added to memory.
    */
   private saveSessionMemory(sessionId: number): void {
-    SessionMemoryTools.saveSessionMemory({
+    SessionActions.saveSessionMemory({
       deps: this.getSessionMemoryDeps(),
       sessionId,
     });
@@ -597,10 +591,10 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
    * Updates memory stats in state for UI display.
    */
   private updateMemoryStats(): void {
-    SessionMemoryTools.updateMemoryStats({ deps: this.getSessionMemoryDeps() });
+    SessionActions.updateMemoryStats({ deps: this.getSessionMemoryDeps() });
   }
 
-  private getSessionMemoryDeps(): SessionMemoryTools.SessionMemoryToolsDeps {
+  private getSessionMemoryDeps(): SessionActions.SessionMemoryToolsDeps {
     return {
       memoryManager: this.memoryManager,
       getStateData: () => ({
@@ -608,11 +602,11 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
         active: this.stateData.active,
         memoryStats: this.stateData.memoryStats,
       }),
-      setStateData: (patch) => this.setStateData(patch as any),
+      setStateData: (patch) => this.setStateData(patch),
     };
   }
 
-  private setStateData(patch: Partial<SpectreWidget['stateData']>): void {
+  private setStateData(patch: Partial<SpectreState>): void {
     // Atomic state update to prevent race conditions
     this.stateData = { ...this.stateData, ...patch };
     this.update();
@@ -718,15 +712,18 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
         ai: this.ai,
         memoryManager: this.memoryManager,
         stateData: this.stateData,
+        getStateData: () => this.stateData,
         setStateData: (patch) => this.setStateData(patch),
         appendAssistant: (text, seq) => this.appendAssistant(text, seq),
-        mutateLastAssistant: (mutator, seq) => this.mutateLastAssistant(mutator, seq),
+        mutateLastAssistant: (mutator, seq) =>
+          this.mutateLastAssistant(mutator, seq),
         focusInput: () => this.focusInput(),
         persist: () => this.persist(),
         deferScroll: () => this.deferScroll(),
         saveSessionMemory: (id) => this.saveSessionMemory(id),
         updateMemoryStats: () => this.updateMemoryStats(),
-        executeFunctionCall: (functionCall) => this.executeFunctionCall(functionCall),
+        executeFunctionCall: (functionCall) =>
+          this.executeFunctionCall(functionCall),
       },
       input: params,
     });
@@ -737,7 +734,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
    */
   private async executeFunctionCall(functionCall: {
     name: string;
-    args: Record<string, any>;
+    args: Record<string, unknown>;
   }): Promise<{ success: boolean; result?: string; error?: string }> {
     return AgentExecutionHelpers.executeFunctionCall(
       functionCall,
@@ -801,7 +798,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
       const sketchFiles = await this.getCurrentSketchFiles();
 
       const agentMode = this.getSpectreMode() === 'agent';
-  
+
       // Use new function calling approach for agent mode
       if (agentMode) {
         await this.sendMessageWithFunctionCalling({
@@ -825,13 +822,15 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
           isNetworkError: (message) => this.isNetworkError(message),
           streamAttach: (key, seq) => this.streamController.attach(key, seq),
           appendAssistant: (t, seq) => this.appendAssistant(t, seq),
-          mutateLastAssistant: (mutator, seq) => this.mutateLastAssistant(mutator, seq),
+          mutateLastAssistant: (mutator, seq, parts) =>
+            this.mutateLastAssistant(mutator, seq, parts),
           streamHasStarted: () => this.streamController.hasStreamStarted(),
           setStateData: (patch) => this.setStateData(patch),
           persist: () => this.persist(),
           deferScroll: () => this.deferScroll(),
           focusInput: () => this.focusInput(),
-          buildSketchContext: (files) => SketchUtilities.buildSketchContext(files),
+          buildSketchContext: (files) =>
+            SketchUtilities.buildSketchContext(files),
         },
         prepared,
         sketchFiles,
@@ -891,7 +890,8 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
 
   private async mutateLastAssistant(
     mutator: (text: string) => string,
-    requestSeq: number
+    requestSeq: number,
+    parts?: any[]
   ): Promise<void> {
     // Double-check request sequence to prevent race conditions
     if (requestSeq !== this.stateData.requestSeq) return;
@@ -913,14 +913,49 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
       msgs[msgs.length - 1] = { id: last.id, role: 'assistant', text: newText };
       sessions[idx] = { ...cur, messages: msgs };
 
-      // Update memory system if text changed and is not empty
-      if (this.shouldUpdateMemory({ newText, oldText: last.text, memory: cur.memory })) {
-        // Find and update the corresponding message in memory
-        const memoryMsg =
-          cur.memory!.recentMessages[cur.memory!.recentMessages.length - 1];
-        if (memoryMsg && memoryMsg.role === 'assistant') {
-          memoryMsg.text = newText;
-          memoryMsg.estimatedTokens = TokenCounter.estimate(newText, 'natural');
+      // Ensure assistant replies are represented in session memory.
+      // In streaming mode, appendAssistant('') creates only a UI placeholder.
+      // Without this, the memory buffer ends up with only user turns and the model will
+      // re-introduce itself because it doesn't see its prior answers.
+      if (cur.memory) {
+        const shouldUpdateText = this.shouldUpdateMemory({
+          newText,
+          oldText: last.text,
+          memory: cur.memory,
+        });
+
+        const lastMemoryMsg =
+          cur.memory.recentMessages[cur.memory.recentMessages.length - 1];
+
+        let createdAssistantEntry = false;
+
+        if (!lastMemoryMsg || lastMemoryMsg.role !== 'assistant') {
+          // Create the assistant entry the first time we receive streamed text.
+          // Skip creating empty placeholders.
+          if (newText.trim() !== '' || parts) {
+            await this.memoryManager.addMessage(
+              cur.memory,
+              'assistant',
+              newText,
+              parts
+            );
+            createdAssistantEntry = true;
+          }
+        } else if (shouldUpdateText || parts) {
+          // Update existing assistant message in memory.
+          lastMemoryMsg.text = newText;
+          if (parts) {
+            lastMemoryMsg.parts = parts;
+          }
+          lastMemoryMsg.estimatedTokens = TokenCounter.estimate(newText, 'natural');
+        }
+
+        // Persist memory only when we create the entry or when we receive final parts.
+        // This avoids excessive storage writes during streaming while still guaranteeing
+        // the final assistant message is saved for the next turn.
+        if (createdAssistantEntry || parts) {
+          this.saveSessionMemory(cur.id);
+          this.updateMemoryStats();
         }
       }
 
@@ -941,7 +976,10 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
     });
     this.sending = false;
     this.streamController.detach();
-    if (key) this.ai.cancel(key).catch(() => {});
+    if (key)
+      this.ai.cancel(key).catch(() => {
+        /* ignore */
+      });
     // Auto-focus input after stopping generation
     this.focusInput();
   }
@@ -971,11 +1009,15 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
       queueSize: this.stateData.queueSize,
       nextAvailableMs: this.stateData.nextAvailableMs,
       now: this.stateData.now,
-      clientRpm: ConfigHelpers.calculateCurrentRpm(this.stateData.requestLogs, Date.now()),
+      clientRpm: ConfigHelpers.calculateCurrentRpm(
+        this.stateData.requestLogs,
+        Date.now()
+      ),
       dailyStats: ConfigHelpers.getDailyStats(this.stateData.dailyTracker),
       memoryStats: this.stateData.memoryStats,
       onSetActive: (i) => this.setActive(i),
-      onToggleTasksExpand: () => this.setStateData({ tasksExpanded: !this.stateData.tasksExpanded }),
+      onToggleTasksExpand: () =>
+        this.setStateData({ tasksExpanded: !this.stateData.tasksExpanded }),
       onCloseTasks: () => this.setStateData({ tasksClosed: true }),
       onRetry: () => {
         this.setStateData({ error: undefined, retryable: false });
@@ -986,14 +1028,14 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
       onInputChange: this.onInputChange,
       onKeyDown: this.onKeyDown,
       inputRef: (el) => (this.inputRef = el),
-      renderAssistantMessage: (text, isStreaming) => this.renderAssistantMessage(text, isStreaming),
+      renderAssistantMessage: (text, isStreaming) =>
+        this.renderAssistantMessage(text, isStreaming),
     });
   }
 
   private deferScroll(): void {
     UiUtilities.deferScrollToBottom(this.node, '.spectre-messages');
   }
-
 
   /**
    * Collects current sketch files (.ino, .cpp, .h) to provide context to AI.
@@ -1009,4 +1051,3 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
     });
   }
 }
-

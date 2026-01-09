@@ -206,7 +206,10 @@ export class BoardsServiceImpl
       ) {
         console.debug(`Debug check: ${fqbn} does not support debugging`);
       } else {
-        console.error(`Failed to get debug config: ${fqbn}, ${programmer}`, err);
+        console.error(
+          `Failed to get debug config: ${fqbn}, ${programmer}`,
+          err
+        );
       }
       throw err;
     }

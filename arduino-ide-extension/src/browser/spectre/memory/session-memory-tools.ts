@@ -25,7 +25,11 @@ export interface SessionMemoryToolsDeps {
 
 export async function migrateSessions(params: {
   deps: SessionMemoryToolsDeps;
-  oldSessions: Array<{ id: number; messages: any[]; memory?: ConversationMemory }>;
+  oldSessions: Array<{
+    id: number;
+    messages: any[];
+    memory?: ConversationMemory;
+  }>;
 }): Promise<SessionMemoryToolsState['sessions']> {
   const { deps, oldSessions } = params;
 
@@ -50,10 +54,13 @@ export async function migrateSessions(params: {
     }
 
     // Create new memory system for this session
-    const memory = deps.memoryManager.createConversation(session.id.toString(), {
-      maxRecentMessages: 40,
-      memoryBankTokenCap: 100_000,
-    });
+    const memory = deps.memoryManager.createConversation(
+      session.id.toString(),
+      {
+        maxRecentMessages: 40,
+        memoryBankTokenCap: 100_000,
+      }
+    );
 
     // Convert old messages to raw messages in memory
     for (const msg of session.messages) {
@@ -89,13 +96,19 @@ export async function migrateSessions(params: {
 export async function createSessionWithMemory(params: {
   deps: SessionMemoryToolsDeps;
   sessionId?: number;
-}): Promise<{ id: number; title: string; messages: any[]; memory: ConversationMemory }> {
+}): Promise<{
+  id: number;
+  title: string;
+  messages: any[];
+  memory: ConversationMemory;
+}> {
   const { deps, sessionId } = params;
   const id = sessionId || Date.now();
 
   // Try to load existing memory from localStorage
   const existingMemory = loadSessionMemory({ deps, sessionId: id });
-  const memory = existingMemory || deps.memoryManager.createConversation(id.toString());
+  const memory =
+    existingMemory || deps.memoryManager.createConversation(id.toString());
 
   return {
     id,
@@ -105,7 +118,10 @@ export async function createSessionWithMemory(params: {
   };
 }
 
-export function saveSessionMemory(params: { deps: SessionMemoryToolsDeps; sessionId: number }): void {
+export function saveSessionMemory(params: {
+  deps: SessionMemoryToolsDeps;
+  sessionId: number;
+}): void {
   const { deps, sessionId } = params;
   const state = deps.getStateData();
   const session = state.sessions.find((s) => s.id === sessionId);
@@ -119,10 +135,15 @@ export function loadSessionMemory(params: {
   deps: Pick<SessionMemoryToolsDeps, 'memoryManager'>;
   sessionId: number;
 }): ConversationMemory | undefined {
-  return MemoryHelper.loadSessionMemory(params.sessionId, params.deps.memoryManager);
+  return MemoryHelper.loadSessionMemory(
+    params.sessionId,
+    params.deps.memoryManager
+  );
 }
 
-export function updateMemoryStats(params: { deps: SessionMemoryToolsDeps }): void {
+export function updateMemoryStats(params: {
+  deps: SessionMemoryToolsDeps;
+}): void {
   const { deps } = params;
   const state = deps.getStateData();
   const session = state.sessions[state.active];
@@ -163,7 +184,11 @@ export async function performAsyncSummarization(params: {
     // This will trigger summarization if thresholds are met
     const lastMessage = memory.recentMessages[memory.recentMessages.length - 1];
     if (lastMessage) {
-      await deps.memoryManager.addMessage(memory, lastMessage.role, lastMessage.text);
+      await deps.memoryManager.addMessage(
+        memory,
+        lastMessage.role,
+        lastMessage.text
+      );
     }
   } finally {
     updateMemoryStats({ deps });

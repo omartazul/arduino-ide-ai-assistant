@@ -69,7 +69,7 @@ export interface SpectreAiRequest {
   context?: {
     files?: Array<{ path: string; content: string }>;
     conversation?: Array<
-      | { role: 'user' | 'model'; text: string }
+      | { role: 'user' | 'model'; text: string; parts?: any[] }
       | {
           role: 'function';
           parts: Array<{ functionResponse: { name: string; response: any } }>;
@@ -106,6 +106,7 @@ export interface SpectreAiRequest {
  */
 export interface SpectreAiResponse {
   text: string;
+  parts?: any[];
   functionCalls?: FunctionCall[];
   requiresAction?: boolean;
   meta?: {

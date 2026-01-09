@@ -46,9 +46,7 @@ export function autoTitle(text: string): string {
     // Look for comments with meaningful content
     const comment = lines.find((line) => {
       const trimmed = line.trim();
-      const commentContent = trimmed
-        .replace(/^(\/\/|\/\*|\*|#)\s*/, '')
-        .trim();
+      const commentContent = trimmed.replace(/^(\/\/|\/\*|\*|#)\s*/, '').trim();
       return (
         (trimmed.startsWith('//') ||
           trimmed.startsWith('#') ||
@@ -122,10 +120,7 @@ export function autoTitle(text: string): string {
           preserved.push(word);
           totalLength += word.length + 1;
         }
-      } else if (
-        preserved.length < 3 &&
-        totalLength + word.length + 1 <= 45
-      ) {
+      } else if (preserved.length < 3 && totalLength + word.length + 1 <= 45) {
         // Include other important words up to limit
         preserved.push(word);
         totalLength += word.length + 1;

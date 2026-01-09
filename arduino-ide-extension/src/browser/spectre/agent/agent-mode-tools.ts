@@ -4,15 +4,148 @@
  * @author Tazul Islam
  */
 
-import type { SpectreAiService } from '../../../common/protocol/spectre-ai-service';
-import { spectreError, spectreWarn } from '../../../common/protocol/spectre-types';
+import type {
+  SpectreAiService,
+  SpectreAiResponse,
+} from '../../../common/protocol/spectre-ai-service';
+import {
+  spectreError,
+  spectreWarn,
+} from '../../../common/protocol/spectre-types';
 import type { MemoryManager } from '../memory/memory-manager';
 import type { ChatSession } from '../ui/widget-rendering';
-import * as AgentTools from './agent-tools';
+import { cleanAgentResponse } from './agent-utils';
+import { AgentTask } from './agent-utils';
+import { formatCompletionMessage } from './completion';
 import * as FunctionCallRunner from './function-call-runner';
 import * as ReactLoop from './react-loop';
-import { createLoopDetector } from './loop-detector';
-import { buildSketchContext, type SketchFile } from '../feature/sketch-utilities';
+import { createLoopDetector, LoopDetectorActionRecord } from './loop-detector';
+import {
+  buildSketchContext,
+  type SketchFile,
+} from '../feature/sketch-utilities';
+import { AgentActionHistoryRecord } from './agent-utils';
+
+type TaskStatus = 'pending' | 'in-progress' | 'completed' | 'failed';
+
+function rankStatus(status: TaskStatus): number {
+  switch (status) {
+    case 'pending':
+      return 0;
+    case 'in-progress':
+      return 1;
+    case 'completed':
+      return 2;
+    case 'failed':
+      return 3;
+  }
+}
+
+function mergeTasksByActionType(params: {
+  existing: AgentTask[] | undefined;
+  incoming: AgentTask[];
+}): AgentTask[] {
+  const { existing, incoming } = params;
+  const existingTasks = existing || [];
+
+  const byActionType = new Map<string, AgentTask>();
+  for (const task of existingTasks) {
+    const key = (task.actionType || '').toLowerCase();
+    if (!key || key === 'task') {
+      continue;
+    }
+    byActionType.set(key, task);
+  }
+
+  return incoming.map((task) => {
+    const key = (task.actionType || '').toLowerCase();
+    const prior = key ? byActionType.get(key) : undefined;
+    if (!prior) {
+      return task;
+    }
+
+    const chosenStatus =
+      rankStatus(prior.status) >= rankStatus(task.status)
+        ? prior.status
+        : task.status;
+
+    return {
+      ...task,
+      status: chosenStatus,
+      error: prior.error || task.error,
+      startTime: prior.startTime || task.startTime,
+      endTime: prior.endTime || task.endTime,
+    };
+  });
+}
+
+function updateTasksAfterFunctionCall(params: {
+  tasks: AgentTask[] | undefined;
+  functionName: string;
+  result: { success: boolean; error?: string };
+}): AgentTask[] | undefined {
+  const { tasks, functionName, result } = params;
+  if (!tasks || tasks.length === 0) {
+    return tasks;
+  }
+
+  const fn = functionName.toLowerCase();
+  const errorMessage = result.error || 'Unknown error';
+
+  let changed = false;
+  const updated = tasks.map((task) => {
+    const actionType = (task.actionType || '').toLowerCase();
+
+    // Deterministic matching only: tasks must declare their actionType.
+    // (Older sessions still work because parsing falls back to an inferred actionType.)
+    const matches = actionType && actionType !== 'task' && actionType !== 'manual' && actionType === fn;
+    if (!matches) {
+      return task;
+    }
+
+    changed = true;
+
+    if (result.success) {
+      return {
+        ...task,
+        status: 'completed' as const,
+        error: undefined,
+        endTime: Date.now(),
+      };
+    }
+
+    return {
+      ...task,
+      status: 'failed' as const,
+      error: errorMessage,
+      endTime: Date.now(),
+    };
+  });
+
+  return changed ? updated : tasks;
+}
+function formatUnknownError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+async function appendToAssistant(params: {
+  deps: AgentModeDeps;
+  requestSeq: number;
+  text: string;
+  withSeparator?: boolean;
+}): Promise<void> {
+  const { deps, requestSeq, text, withSeparator = true } = params;
+  await deps.mutateLastAssistant((prev) => {
+    if (!withSeparator) {
+      return prev + text;
+    }
+    const separator = prev.trim() ? '\n\n' : '';
+    return prev + separator + text;
+  }, requestSeq);
+}
 
 export interface FunctionCallingParams {
   text: string;
@@ -23,20 +156,17 @@ export interface FunctionCallingParams {
 }
 
 export interface ProcessFunctionCallsParams {
-  functionCalls: Array<{ name: string; args: any }>;
-  detectLoop: (calls: Array<{ name: string; args: any }>) => any;
-  actionHistory: Array<{
-    signature: string;
-    normalizedSignature: string;
-    timestamp: number;
-    functionName: string;
-    args: any;
-    result?: { success: boolean; error?: string };
-  }>;
+  functionCalls: Array<{ name: string; args: Record<string, unknown> }>;
+  detectLoop: (
+    calls: Array<{ name: string; args: Record<string, unknown> }>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ) => any;
+  actionHistory: Array<LoopDetectorActionRecord>;
   conversationHistory: Array<{
     role: 'user' | 'model' | 'function';
     text?: string;
     name?: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     response?: any;
   }>;
   requestSeq: number;
@@ -46,20 +176,28 @@ export interface AgentModeStateData {
   sessions: ChatSession[];
   active: number;
   requestSeq: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   tasks: any[];
   tasksExpanded: boolean;
   tasksClosed: boolean;
+  busy?: boolean;
+  currentAbortKey?: string;
+  error?: string;
 }
 
 export interface AgentModeDeps {
   ai: SpectreAiService;
   memoryManager: MemoryManager;
   stateData: AgentModeStateData;
+  getStateData: () => AgentModeStateData;
 
   // UI/state hooks
-  setStateData: (patch: Partial<any>) => void;
+  setStateData: (patch: Partial<AgentModeStateData>) => void;
   appendAssistant: (text: string, requestSeq: number) => Promise<void>;
-  mutateLastAssistant: (mutator: (text: string) => string, requestSeq: number) => Promise<void>;
+  mutateLastAssistant: (
+    mutator: (text: string) => string,
+    requestSeq: number
+  ) => Promise<void>;
   focusInput: () => void;
   persist: () => void;
   deferScroll: () => void;
@@ -69,7 +207,11 @@ export interface AgentModeDeps {
   updateMemoryStats: () => void;
 
   // function call execution
-  executeFunctionCall: (functionCall: { name: string; args: Record<string, any> }) => Promise<{ success: boolean; result?: string; error?: string }>;
+  executeFunctionCall: (functionCall: {
+    name: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    args: Record<string, any>;
+  }) => Promise<{ success: boolean; result?: string; error?: string }>;
 }
 
 export async function sendMessageWithFunctionCalling(params: {
@@ -80,8 +222,14 @@ export async function sendMessageWithFunctionCalling(params: {
   const { text, requestSeq, abortKey, model, sketchFiles } = input;
   const MAX_ITERATIONS = 10;
 
-  const context = await setupReActLoop({ deps, text, sketchFiles, model, requestSeq });
-  let agentError: any = null;
+  const context = await setupReActLoop({
+    deps,
+    text,
+    sketchFiles,
+    model,
+    requestSeq,
+  });
+  let agentError: unknown = null;
 
   try {
     const result = await ReactLoop.executeReActLoop({
@@ -94,23 +242,41 @@ export async function sendMessageWithFunctionCalling(params: {
       detectLoop: context.detectLoop,
       actionHistory: context.actionHistory,
       shouldAbort: () => requestSeq !== deps.stateData.requestSeq,
-      aiGenerate: (genParams) => deps.ai.generate(genParams),
-      addResponseToHistory: (response) => addResponseToHistory({ deps, response, conversationHistory: context.conversationHistory, requestSeq }),
-      processFunctionCalls: (callParams) => processFunctionCalls({ deps, params: callParams }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      aiGenerate: (genParams) => deps.ai.generate(genParams as any),
+      addResponseToHistory: (response) =>
+        addResponseToHistory({
+          deps,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          response: response as any,
+          conversationHistory: context.conversationHistory,
+          requestSeq,
+        }),
+      processFunctionCalls: (callParams) =>
+        processFunctionCalls({ deps, params: callParams }),
       handleAgentCompletion: ({ iteration, actionHistory, responseText }) =>
-        handleAgentCompletion({ deps, iteration, actionHistory, responseText, requestSeq }),
+        handleAgentCompletion({
+          deps,
+          iteration,
+          actionHistory,
+          responseText,
+          requestSeq,
+        }),
       handleIterationError: ({ iteration, error }) =>
         handleIterationError({ deps, iteration, error, requestSeq }),
       displayMaxIterationsWarning: ({ maxIterations }) =>
         displayMaxIterationsWarning({ deps, maxIterations, requestSeq }),
     });
     agentError = result.error;
-  } catch (outerError: any) {
+  } catch (outerError: unknown) {
     spectreError('Agent mode outer error:', outerError);
-    await deps.mutateLastAssistant(
-      (prev) => prev + `\n\n❌ **Error:** ${outerError?.message || String(outerError)}\n`,
-      requestSeq
-    );
+    const errorMessage =
+      outerError instanceof Error ? outerError.message : String(outerError);
+    await appendToAssistant({
+      deps,
+      requestSeq,
+      text: `❌ **Error:** ${errorMessage}\n`,
+    });
     agentError = outerError;
   } finally {
     finalizeAgent({ deps, agentError });
@@ -124,10 +290,13 @@ async function setupReActLoop(params: {
   model: string | undefined;
   requestSeq: number;
 }): Promise<{
-  conversationHistory: Array<any>;
-  detectLoop: (functionCalls: Array<{ name: string; args: any }>) => any;
+  conversationHistory: Array<ReactLoop.AgentConversationMessage>;
+  detectLoop: (
+    functionCalls: Array<{ name: string; args: Record<string, unknown> }>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ) => any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   actionHistory: Array<any>;
-  contextualPrompt: string;
 }> {
   const { deps, text, sketchFiles, model, requestSeq } = params;
   const files = sketchFiles || [];
@@ -137,39 +306,31 @@ async function setupReActLoop(params: {
   const conversationHistory = await initializeConversationMemory({
     deps,
     text,
-    sketchFiles: files,
     model: model || 'gemini-2.0-flash-exp',
     contextualPrompt,
+    sketchContext,
   });
 
   await deps.appendAssistant('', requestSeq);
-  const { detectLoop, actionHistory } = createLoopDetector({ warn: spectreWarn });
+  const { detectLoop, actionHistory } = createLoopDetector({
+    warn: spectreWarn,
+    loopDetectionWindow: 10,
+    maxIdenticalActions: 2,
+  });
 
-  return { conversationHistory, detectLoop, actionHistory, contextualPrompt };
+  return { conversationHistory, detectLoop, actionHistory };
 }
 
 async function initializeConversationMemory(params: {
   deps: AgentModeDeps;
   text: string;
-  sketchFiles: SketchFile[];
   model: string;
   contextualPrompt: string;
-}): Promise<
-  Array<{
-    role: 'user' | 'model' | 'function';
-    text?: string;
-    name?: string;
-    response?: any;
-  }>
-> {
-  const { deps, text, sketchFiles, model, contextualPrompt } = params;
+  sketchContext: string;
+}): Promise<Array<ReactLoop.AgentConversationMessage>> {
+  const { deps, text, model, contextualPrompt, sketchContext } = params;
 
-  const conversationHistory: Array<{
-    role: 'user' | 'model' | 'function';
-    text?: string;
-    name?: string;
-    response?: any;
-  }> = [];
+  const conversationHistory: Array<ReactLoop.AgentConversationMessage> = [];
 
   const session = deps.stateData.sessions[deps.stateData.active];
   if (!session) {
@@ -178,7 +339,9 @@ async function initializeConversationMemory(params: {
   }
 
   if (!session.memory) {
-    session.memory = deps.memoryManager.createConversation(session.id.toString());
+    session.memory = deps.memoryManager.createConversation(
+      session.id.toString()
+    );
   }
 
   await deps.memoryManager.addMessage(session.memory, 'user', contextualPrompt);
@@ -188,8 +351,6 @@ async function initializeConversationMemory(params: {
   const isFlashLite = model === 'gemini-2.5-flash-lite';
   const targetBudget = isFlashLite ? 30_000 : 50_000;
 
-  const sketchContext = sketchFiles.length > 0 ? buildSketchContext(sketchFiles) : '';
-
   deps.memoryManager.assemblePrompt(session.memory, {
     currentPrompt: text,
     additionalContext: sketchContext,
@@ -197,7 +358,9 @@ async function initializeConversationMemory(params: {
   });
 
   if (session.memory.memoryBank.summaries.length > 0) {
-    const historicalContext = session.memory.memoryBank.summaries.map((s) => s.summary).join('\n\n---\n\n');
+    const historicalContext = session.memory.memoryBank.summaries
+      .map((s) => s.summary)
+      .join('\n\n---\n\n');
 
     conversationHistory.push({
       role: 'user',
@@ -235,8 +398,21 @@ async function processFunctionCalls(params: {
     conversationHistory: callParams.conversationHistory,
     requestSeq: callParams.requestSeq,
     shouldAbort: () => callParams.requestSeq !== deps.stateData.requestSeq,
-    mutateLastAssistant: (mutator, seq) => deps.mutateLastAssistant(mutator, seq),
-    executeFunctionCall: (functionCall) => deps.executeFunctionCall(functionCall),
+    mutateLastAssistant: (mutator, seq) =>
+      deps.mutateLastAssistant(mutator, seq),
+    executeFunctionCall: (functionCall) =>
+      deps.executeFunctionCall(functionCall),
+    onFunctionCallResult: ({ functionCall, result }) => {
+      const latest = deps.getStateData();
+      const updated = updateTasksAfterFunctionCall({
+        tasks: latest.tasks as AgentTask[] | undefined,
+        functionName: functionCall.name,
+        result,
+      });
+      if (updated && updated !== latest.tasks) {
+        deps.setStateData({ tasks: updated as any });
+      }
+    },
     logError: spectreError,
   });
 }
@@ -244,27 +420,28 @@ async function processFunctionCalls(params: {
 function handleAgentCompletion(params: {
   deps: AgentModeDeps;
   iteration: number;
-  actionHistory: Array<{ result?: { success: boolean } }>;
+  actionHistory: Array<AgentActionHistoryRecord>;
   responseText: string | undefined;
   requestSeq: number;
 }): void {
-  const { deps, iteration, actionHistory, responseText, requestSeq } = params;
+  const { deps, iteration, requestSeq } = params;
 
-  if (AgentTools.taskCompletedSuccessfully({ responseText, actionHistory })) {
-    const completedTasks = AgentTools.markAllTasksCompleted(deps.stateData.tasks as any);
-    if (completedTasks) {
-      deps.setStateData({ tasks: completedTasks });
+  const completionMessage = formatCompletionMessage(iteration);
+
+  // Idempotent: avoid appending multiple completion blocks into the same
+  // assistant message if completion is triggered more than once.
+  void deps.mutateLastAssistant((prev) => {
+    if (prev.includes('### ✅ Agent Finished') || prev.includes('### ✅ Task Completed')) {
+      return prev;
     }
-  }
-
-  const completionMessage = AgentTools.formatCompletionMessage(iteration);
-  void deps.mutateLastAssistant((prev) => prev + completionMessage, requestSeq);
+    return prev + completionMessage;
+  }, requestSeq);
 }
 
 function addResponseToHistory(params: {
   deps: AgentModeDeps;
-  response: any;
-  conversationHistory: Array<any>;
+  response: SpectreAiResponse;
+  conversationHistory: Array<ReactLoop.AgentConversationMessage>;
   requestSeq: number;
 }): void {
   const { deps, response, conversationHistory, requestSeq } = params;
@@ -273,42 +450,44 @@ function addResponseToHistory(params: {
   }
 
   conversationHistory.push({ role: 'model', text: response.text });
-  const { cleanText, tasks } = AgentTools.cleanAgentResponse({
+  const { cleanText, tasks } = cleanAgentResponse({
     responseText: response.text,
     thoughtsTokens: response.meta?.thoughtsTokens,
   });
 
   if (tasks.length > 0) {
-    deps.setStateData({ tasks, tasksExpanded: false, tasksClosed: false });
+    const latest = deps.getStateData();
+    const merged = mergeTasksByActionType({
+      existing: latest.tasks as AgentTask[] | undefined,
+      incoming: tasks,
+    });
+    deps.setStateData({
+      tasks: merged as any,
+      tasksExpanded: false,
+      tasksClosed: false,
+    });
   }
 
   if (cleanText.trim()) {
-    void deps.mutateLastAssistant(
-      (prev) => {
-        const separator = prev.trim() ? '\n\n' : '';
-        return prev + separator + cleanText;
-      },
-      requestSeq
-    );
+    void appendToAssistant({ deps, requestSeq, text: cleanText });
   }
 }
 
 function handleIterationError(params: {
   deps: AgentModeDeps;
   iteration: number;
-  error: any;
+  error: unknown;
   requestSeq: number;
 }): void {
   const { deps, iteration, error, requestSeq } = params;
   spectreError(`Agent iteration ${iteration} error:`, error);
-  void deps.mutateLastAssistant(
-    (prev) =>
-      prev +
-      `\n\n⚠️ **Error in iteration ${iteration}:** ${
-        error instanceof Error ? error.message : String(error)
-      }\n`,
-    requestSeq
-  );
+  void appendToAssistant({
+    deps,
+    requestSeq,
+    text: `⚠️ **Error in iteration ${iteration}:** ${formatUnknownError(
+      error
+    )}\n`,
+  });
 }
 
 function displayMaxIterationsWarning(params: {
@@ -317,21 +496,27 @@ function displayMaxIterationsWarning(params: {
   requestSeq: number;
 }): void {
   const { deps, maxIterations, requestSeq } = params;
-  void deps.mutateLastAssistant(
-    (prev) =>
-      prev +
-      `\n\n---\n\n### ⚠️ Maximum Iterations Reached\n\nStopped after **${maxIterations}** iterations for safety.\n`,
-    requestSeq
-  );
+  void appendToAssistant({
+    deps,
+    requestSeq,
+    text: `---\n\n### ⚠️ Maximum Iterations Reached\n\nStopped after **${maxIterations}** iterations for safety.\n`,
+  });
 }
 
-function finalizeAgent(params: { deps: AgentModeDeps; agentError: any }): void {
+function finalizeAgent(params: {
+  deps: AgentModeDeps;
+  agentError: unknown;
+}): void {
   const { deps, agentError } = params;
   try {
     deps.setStateData({
       busy: false,
       currentAbortKey: undefined,
-      error: agentError ? agentError.message || String(agentError) : undefined,
+      error: agentError
+        ? agentError instanceof Error
+          ? agentError.message
+          : String(agentError)
+        : undefined,
     });
     deps.persist();
     deps.deferScroll();
