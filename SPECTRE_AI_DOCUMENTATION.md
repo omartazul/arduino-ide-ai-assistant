@@ -1,6 +1,6 @@
 # Spectre AI — Complete Documentation
 
-**Version:** 3.3.8
+**Version:** 3.3.9
 **Date:** January 7, 2026
 **Status:** Production
 **Author:** Tazul Islam
@@ -70,7 +70,7 @@ Important files:
 
 ### 3.1 Code map (frontend)
 
-This section is a practical map of the key modules in `arduino-ide-extension/src/browser/spectre/` and what they do (as of v3.3.8).
+This section is a practical map of the key modules in `arduino-ide-extension/src/browser/spectre/` and what they do (as of v3.3.9).
 
 **Core UI & orchestration**
 - `spectre-widget.tsx`
@@ -325,7 +325,7 @@ This section documents practical, verifiable guidance for maintaining Spectre AI
 ## 14. Versioning
 
 - The current repository version is defined in the root `package.json`.
-- As of this document: **v3.3.8**.
+- As of this document: **v3.3.9**.
 
 ---
 

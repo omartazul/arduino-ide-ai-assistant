@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)]()
 [![Arduino IDE](https://img.shields.io/badge/Arduino%20IDE-2.3.8-teal)]()
 [![Gemini AI](https://img.shields.io/badge/Powered%20by-Gemini%203.1-orange)]()
-[![Version](https://img.shields.io/badge/version-3.3.8-teal)]()
+[![Version](https://img.shields.io/badge/version-3.3.9-teal)]()
 
 ## What is Arduino IDE AI Assistant?
 
