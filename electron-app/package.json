@@ -1,7 +1,7 @@
 {
   "private": true,
   "name": "electron-app",
-  "version": "3.3.8",
+  "version": "3.3.9",
   "license": "AGPL-3.0-or-later",
   "main": "./src-gen/backend/electron-main.js",
   "dependencies": {
