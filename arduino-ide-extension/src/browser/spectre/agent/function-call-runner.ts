@@ -1,7 +1,22 @@
+/**
+ * Orchestration utilities for agent function-calling and execution.
+ *
+ * Provides helpers to detect ReAct loops, render execution progress,
+ * and record function results into the conversation history.
+ *
+ * @author Tazul Islam
+ */
+
 import * as RenderingHelpers from '../ui/message-rendering';
 import { AgentActionHistoryRecord } from './agent-utils';
 
-export type AgentFunctionCall = { name: string; args: Record<string, unknown> };
+export type AgentFunctionCall = {
+  name: string;
+  args: Record<string, unknown>;
+  id?: string;
+  thoughtSignature?: string;
+  thought_signature?: string;
+};
 
 export type AgentLoopDetected = {
   signature: string;
@@ -25,6 +40,7 @@ interface FunctionResponse {
 export type ConversationHistoryItem = {
   role: string;
   name?: string;
+  callId?: string;
   response?: unknown;
   content?: string;
 };
@@ -140,7 +156,7 @@ async function executeFunctionCallsSequence(
     );
     updateActionHistory(actionHistory, functionCall.name, result);
     displayExecutionResult(result, requestSeq, mutateLastAssistant);
-    addToConversationHistory(conversationHistory, functionCall.name, result);
+    addToConversationHistory(conversationHistory, functionCall, result);
     onFunctionCallResult?.({ functionCall, result });
   }
 }
@@ -229,9 +245,10 @@ function displayExecutionResult(
 
 function addToConversationHistory(
   conversationHistory: ConversationHistoryItem[],
-  functionName: string,
+  functionCall: AgentFunctionCall,
   result: { success: boolean; result?: string; error?: string }
 ): void {
+  const { name: functionName, id: callId } = functionCall;
   const functionResponse: FunctionResponse = {
     success: result.success,
     result: result.result,
@@ -249,6 +266,7 @@ function addToConversationHistory(
   conversationHistory.push({
     role: 'function',
     name: functionName,
+    callId,
     response: functionResponse,
   });
 }

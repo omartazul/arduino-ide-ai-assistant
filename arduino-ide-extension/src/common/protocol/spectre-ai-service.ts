@@ -45,31 +45,36 @@ export interface FunctionDeclaration {
 export interface FunctionCall {
   name: string;
   args: Record<string, any>;
+  id?: string;
+  thoughtSignature?: string;
+  thought_signature?: string;
 }
 
 /**
  * Request contract for Spectre AI generation.
  *
  * @property prompt - The user's input text or question
- * @property model - Gemini model selection (flash or flash-lite)
+ * @property model - Gemini/Gemma model selection
  * @property includeThoughts - Whether to include AI's thinking process in response
  * @property context - Additional context for the AI (files, conversation history)
  * @property abortKey - Unique key to cancel this specific request
  * @property generationConfig - Advanced generation parameters (temperature, tokens, etc.)
- * @property thinkingBudget - Token budget for thinking mode (always enabled, -1 = unlimited)
+ * @property thinkingLevel - Requested thinking level for supported models
  * @property safetySettings - Content safety filters
  * @property enableGoogleSearch - Enable Google Search grounding for real-time information
  * @property enableAgentMode - Enable autonomous agent mode with function calling
  * @property functionDeclarations - Available functions for agent mode (if not provided, backend uses defaults)
  */
+export type SpectreThinkingLevel = 'OFF' | 'LOW' | 'MEDIUM' | 'HIGH';
+
 export interface SpectreAiRequest {
   prompt: string;
-  model?: 'gemini-2.5-flash' | 'gemini-2.5-flash-lite';
+  model?: 'gemini-3.1-flash-lite' | 'gemma-4-31b' | 'gemma-4-26b';
   includeThoughts?: boolean;
   context?: {
     files?: Array<{ path: string; content: string }>;
     conversation?: Array<
-      | { role: 'user' | 'model'; text: string; parts?: any[] }
+      | { role: 'user' | 'model'; text?: string; parts?: any[] }
       | {
           role: 'function';
           parts: Array<{ functionResponse: { name: string; response: any } }>;
@@ -82,17 +87,15 @@ export interface SpectreAiRequest {
     topP?: number;
     topK?: number;
     maxOutputTokens?: number;
-    thinking?: {
-      budgetTokens: number;
-    };
   };
-  thinkingBudget?: number;
+  thinkingLevel?: SpectreThinkingLevel;
   safetySettings?: Array<{
     category: string;
     threshold: string;
   }>;
   enableGoogleSearch?: boolean;
   enableAgentMode?: boolean;
+  enforceFunctionCalling?: boolean;
   functionDeclarations?: FunctionDeclaration[];
 }
 

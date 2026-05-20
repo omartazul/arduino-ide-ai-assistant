@@ -10,7 +10,7 @@
  * - Request queuing with dynamic scheduling
  * - Streaming response support with retry logic
  * - Conversation context memory for multi-turn chats
- * - Thinking mode with dynamic budget allocation
+ * - Thinking mode with configurable levels
  *
  * @author Tazul Islam
  */
@@ -41,6 +41,8 @@ import {
   delay,
   estimateTotalInputTokens,
   mapModel,
+  resolveSupportedModel,
+  supportsFunctionCalling,
 } from './spectre-ai-request-utils';
 import {
   applyThoughtSummary,
@@ -66,7 +68,7 @@ interface StandardGenerationContext {
   abortKey: string;
   generationConfig: any;
   safetySettings: any;
-  thinkingBudget: number | undefined;
+  thinkingLevel: string | undefined;
   includeThoughts: boolean | undefined;
 }
 
@@ -84,7 +86,6 @@ interface StreamingCallContext {
   key: string;
   context?: any;
   request?: SpectreAiRequest;
-  disableGoogleSearch?: boolean;
 }
 
 /**
@@ -150,7 +151,6 @@ interface RunGenerationRetryLoopParams extends GenerationRetryParams {
  */
 interface ProcessRetryActionParams {
   decision: any;
-  genConfig: any;
   state: RetryState;
   abortKey: string;
 }
@@ -176,19 +176,9 @@ type GoogleGenAIType = any;
  */
 class RetryState {
   attempt = 0;
-  triedNoThinking = false;
-  triedNoGoogleSearch = false;
 
   increment(): void {
     this.attempt++;
-  }
-
-  markNoThinking(): void {
-    this.triedNoThinking = true;
-  }
-
-  markNoGoogleSearch(): void {
-    this.triedNoGoogleSearch = true;
   }
 }
 
@@ -210,7 +200,6 @@ interface GenerationAttemptContext {
   request?: SpectreAiRequest;
   reservationTokens: number;
   includeThoughts?: boolean;
-  disableGoogleSearch?: boolean;
 }
 
 /**
@@ -273,12 +262,12 @@ interface QuotaConfig {
 const QUOTA_CONFIG: QuotaConfig = {
   tokenCapacityPerMinute: 250_000,
   maxOutputTokens: 65_536,
-  rpmFlash: 10,
+  rpmFlash: 15,
   rpmFlashLite: 15,
-  rpdFlash: 250,
-  rpdFlashLite: 1000,
+  rpdFlash: 1500,
+  rpdFlashLite: 500,
   rollingWindowMs: 60_000,
-  minSpacingMsFlash: 6000, // 10 RPM = 1 request every 6 seconds
+  minSpacingMsFlash: 4000, // 15 RPM = 1 request every 4 seconds
   minSpacingMsFlashLite: 4000, // 15 RPM = 1 request every 4 seconds
 };
 
@@ -439,7 +428,8 @@ export class SpectreAiServiceImpl implements SpectreAiService {
       );
     }
 
-    const model = mapModel(request.model || 'gemini-2.5-flash');
+    const requestedModel = resolveSupportedModel(request.model);
+    const model = mapModel(requestedModel);
     const abortKey =
       request.abortKey ||
       `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -518,8 +508,8 @@ export class SpectreAiServiceImpl implements SpectreAiService {
    */
   async getQuota(model?: string): Promise<SpectreQuotaUpdate> {
     const modelForRpm = model
-      ? mapModel(model)
-      : this.queue[0]?.model || 'gemini-2.5-flash';
+      ? mapModel(resolveSupportedModel(model))
+      : this.queue[0]?.model || 'gemini-3.1-flash-lite';
 
     this.quota.cleanWindows();
     const head = this.queue[0]
@@ -724,7 +714,7 @@ export class SpectreAiServiceImpl implements SpectreAiService {
    * - Streams response chunks to frontend
    * - Retries transient failures with exponential backoff
    * - Handles service overload (503) with longer backoffs
-   * - Falls back when thinkingConfig is unsupported
+  * - Applies thinking configuration when enabled
    * - Implements ReAct loop for agent mode (Think → Act → Observe → Repeat)
    *
    * @param request - Generation request parameters
@@ -744,7 +734,7 @@ export class SpectreAiServiceImpl implements SpectreAiService {
       abortKey = `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       generationConfig,
       safetySettings,
-      thinkingBudget,
+      thinkingLevel,
       includeThoughts,
     } = request;
 
@@ -760,7 +750,7 @@ export class SpectreAiServiceImpl implements SpectreAiService {
       abortKey,
       generationConfig,
       safetySettings,
-      thinkingBudget,
+      thinkingLevel,
       includeThoughts,
     });
   }
@@ -779,21 +769,26 @@ export class SpectreAiServiceImpl implements SpectreAiService {
       abortKey,
       generationConfig,
       safetySettings,
-      thinkingBudget,
+      thinkingLevel,
       includeThoughts,
     } = ctx;
-    const { context, model = 'gemini-2.5-flash', prompt } = request;
+    const { context, model = 'gemini-3.1-flash-lite', prompt } = request;
+    if (request.enableAgentMode === true && !supportsFunctionCalling(model)) {
+      throw new Error(
+        'Agent mode requires gemini-3.1-flash-lite. Select that model in Preferences.'
+      );
+    }
 
     const isAgentMode = request.enableAgentMode === true;
     const genConfig = buildStandardGenConfig({
       model,
       isAgentMode,
       generationConfig,
-      thinkingBudget,
+      thinkingLevel,
       maxOutputTokensCap: QUOTA_CONFIG.maxOutputTokens,
     });
 
-    const userInput = buildPrompt(prompt);
+    const userInput = buildPrompt(prompt, thinkingLevel);
     const sdk = await this.ensureSdk();
     const apiKey = await this.getApiKey();
     if (!apiKey) throw new Error('No Gemini API key configured.');
@@ -887,7 +882,6 @@ export class SpectreAiServiceImpl implements SpectreAiService {
           request,
           reservationTokens,
           includeThoughts,
-          disableGoogleSearch: state.triedNoGoogleSearch,
         });
       } catch (err: any) {
         if (controller.signal.aborted) throw new Error('Generation canceled.');
@@ -896,14 +890,11 @@ export class SpectreAiServiceImpl implements SpectreAiService {
 
         const decision = decideStandardGenerationRetry({
           err,
-          msg,
           attempt: state.attempt,
           maxRetries,
-          triedNoThinking: state.triedNoThinking,
-          triedNoGoogleSearch: state.triedNoGoogleSearch,
         });
 
-        await this.processRetryDecision({ decision, genConfig, state, abortKey });
+        await this.processRetryDecision({ decision, state, abortKey });
       }
     }
   }
@@ -922,7 +913,6 @@ export class SpectreAiServiceImpl implements SpectreAiService {
       request,
       reservationTokens,
       includeThoughts,
-      disableGoogleSearch,
     } = ctx;
 
     const res = await this.tryStreamingAttempt({
@@ -936,7 +926,6 @@ export class SpectreAiServiceImpl implements SpectreAiService {
       key: abortKey,
       context,
       request,
-      disableGoogleSearch: !!disableGoogleSearch,
     });
 
     applyThoughtSummary(res, includeThoughts);
@@ -963,18 +952,7 @@ export class SpectreAiServiceImpl implements SpectreAiService {
    * Mutates genConfig/state as needed and performs appropriate backoff/wait.
    */
   private async processRetryDecision(params: ProcessRetryActionParams): Promise<void> {
-    const { decision, genConfig, state, abortKey } = params;
-
-    if (decision.action === 'retry-no-thinking') {
-      delete genConfig.thinkingConfig;
-      state.markNoThinking();
-      return;
-    }
-
-    if (decision.action === 'retry-no-google-search') {
-      state.markNoGoogleSearch();
-      return;
-    }
+    const { decision, state, abortKey } = params;
 
     if (decision.action === 'retry') {
       this.client?.onStream({ key: abortKey, delta: decision.delta });
@@ -1076,6 +1054,7 @@ export class SpectreAiServiceImpl implements SpectreAiService {
     // Wrap entire streaming call with timeout protection.
     // Important: ensure timers/listeners are always cleaned up to avoid leaks.
     let timeoutId: NodeJS.Timeout | undefined;
+    let timedOut = false;
     const onAbort = () => {
       if (timeoutId) {
         clearTimeout(timeoutId);
@@ -1085,6 +1064,7 @@ export class SpectreAiServiceImpl implements SpectreAiService {
 
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutId = setTimeout(() => {
+        timedOut = true;
         controller.abort();
         reject(
           new Error(
@@ -1106,6 +1086,9 @@ export class SpectreAiServiceImpl implements SpectreAiService {
     } finally {
       onAbort();
       controller.signal.removeEventListener('abort', onAbort);
+      if (timedOut) {
+        void executePromise.catch(() => undefined);
+      }
     }
   }
 
@@ -1127,13 +1110,12 @@ export class SpectreAiServiceImpl implements SpectreAiService {
       key,
       context,
       request,
-      disableGoogleSearch,
     } = ctx;
 
     const { thinkingConfig, ...restGen } = genConfig;
     const ai = this.createAiClient({ sdk, apiKey });
 
-    const tools = buildStreamingTools(request, disableGoogleSearch);
+    const tools = buildStreamingTools(request);
     const contents = buildConversationContents(context, userInput);
     const systemInstruction =
       request?.enableAgentMode === true
@@ -1207,7 +1189,7 @@ export class SpectreAiServiceImpl implements SpectreAiService {
     );
 
     try {
-      const { full, lastChunk, hasFunctionCalls } = await consumeStream({
+      const { full, lastChunk, hasFunctionCalls, allParts } = await consumeStream({
         response,
         controller,
         onChunk: () => {
@@ -1224,7 +1206,7 @@ export class SpectreAiServiceImpl implements SpectreAiService {
       }
 
       this.client?.onStream({ key, done: true });
-      return buildStreamingResponse(endpointModel, full, lastChunk);
+      return buildStreamingResponse(endpointModel, full, lastChunk, allParts);
     } finally {
       stopInactivity();
     }

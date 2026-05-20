@@ -1,17 +1,34 @@
+/**
+ * Streaming helpers and response parsing utilities.
+ *
+ * Builds streaming tool descriptors, normalizes conversation contents,
+ * consumes streaming chunks, and extracts function-call events.
+ *
+ * @author Tazul Islam
+ */
+
 import {
   FunctionCall,
   SpectreAiRequest,
   SpectreAiResponse,
 } from '../common/protocol/spectre-ai-service';
 import { TIMING_CONSTANTS, spectreWarn } from '../common/protocol/spectre-types';
+import {
+  supportsFunctionCalling,
+  supportsGoogleSearch,
+} from './spectre-ai-request-utils';
 
 export function buildStreamingTools(
-  request: SpectreAiRequest | undefined,
-  disableGoogleSearch: boolean | undefined
+  request: SpectreAiRequest | undefined
 ): any[] {
   const tools: any[] = [];
+  const model = request?.model;
 
-  if (request?.enableAgentMode === true && request.functionDeclarations) {
+  if (
+    request?.enableAgentMode === true &&
+    request.functionDeclarations &&
+    (!model || supportsFunctionCalling(model))
+  ) {
     const functionDeclarations = request.functionDeclarations.map((fn) => ({
       name: fn.name,
       description: fn.description,
@@ -22,7 +39,10 @@ export function buildStreamingTools(
     return tools;
   }
 
-  if (!disableGoogleSearch && request?.enableGoogleSearch !== false) {
+  if (
+    request?.enableGoogleSearch === true &&
+    (!model || supportsGoogleSearch(model))
+  ) {
     tools.push({ googleSearch: {} });
   }
 
@@ -52,12 +72,14 @@ function getRawConversationContents(context: any): any[] {
 }
 
 function convertMessageToRaw(msg: any): any | undefined {
-  if ('text' in msg) {
-    return { role: msg.role, parts: [{ text: msg.text }] };
+  if ('parts' in msg && Array.isArray(msg.parts)) {
+    // If text is also present and parts doesn't have a text object, we could prepend it.
+    // However, react-loop.ts already builds the parts properly if both exist.
+    return { role: msg.role, parts: msg.parts };
   }
 
-  if ('parts' in msg && Array.isArray(msg.parts)) {
-    return { role: msg.role, parts: msg.parts };
+  if (msg.text !== undefined) {
+    return { role: msg.role, parts: [{ text: msg.text }] };
   }
 
   return undefined;
@@ -117,12 +139,13 @@ export async function consumeStream(params: {
   controller: AbortController;
   onChunk: () => void;
   onDelta: (delta: string) => void;
-}): Promise<{ full: string; lastChunk: any; hasFunctionCalls: boolean }> {
+}): Promise<{ full: string; lastChunk: any; hasFunctionCalls: boolean; allParts: any[] }> {
   const { response, controller, onChunk, onDelta } = params;
 
   let full = '';
   let lastChunk: any;
   let hasFunctionCalls = false;
+  const allParts: any[] = [];
 
   for await (const chunk of response) {
     if (controller.signal.aborted) break;
@@ -130,6 +153,9 @@ export async function consumeStream(params: {
     onChunk();
 
     const parts = getPartsFromChunk(chunk);
+    if (parts.length > 0) {
+      allParts.push(...parts);
+    }
     hasFunctionCalls = updateHasFunctionCalls(hasFunctionCalls, parts);
 
     const textDelta = getTextDeltaForChunk(chunk, parts, hasFunctionCalls);
@@ -141,7 +167,7 @@ export async function consumeStream(params: {
     onDelta(textDelta);
   }
 
-  return { full, lastChunk, hasFunctionCalls };
+  return { full, lastChunk, hasFunctionCalls, allParts };
 }
 
 function getPartsFromChunk(chunk: any): any[] {
@@ -159,11 +185,12 @@ function getTextDeltaForChunk(chunk: any, parts: any[], hasFunctionCalls: boolea
 export function buildStreamingResponse(
   endpointModel: string,
   full: string,
-  lastChunk: any
+  lastChunk: any,
+  allParts: any[]
 ): SpectreAiResponse {
   const candidate = lastChunk?.candidates?.[0];
   const usage = lastChunk?.usageMetadata;
-  const parts = candidate?.content?.parts || [];
+  const parts = allParts.length > 0 ? allParts : (candidate?.content?.parts || []);
 
   const functionCalls = extractFunctionCalls(parts);
   const meta = buildStreamingMeta(endpointModel, usage, candidate);
@@ -227,10 +254,20 @@ function extractFunctionCalls(parts: any[]): FunctionCall[] {
     if (!part.functionCall) {
       continue;
     }
-    out.push({
+    const fc: FunctionCall = {
       name: part.functionCall.name,
       args: part.functionCall.args || {},
-    });
+    };
+    if (part.functionCall.id) {
+      fc.id = part.functionCall.id;
+    }
+    if (part.thoughtSignature) {
+      fc.thoughtSignature = part.thoughtSignature;
+    }
+    if (part.thought_signature) {
+      fc.thought_signature = part.thought_signature;
+    }
+    out.push(fc);
   }
   return out;
 }

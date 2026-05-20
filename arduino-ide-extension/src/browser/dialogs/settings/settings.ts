@@ -69,7 +69,9 @@ export interface Settings {
   network: Network; // CLI
 
   // Spectre AI
-  spectreModel: 'gemini-2.5-flash' | 'gemini-2.5-flash-lite';
+  spectreModel: 'gemini-3.1-flash-lite' | 'gemma-4-31b' | 'gemma-4-26b';
+  spectreThinkingLevel: 'OFF' | 'LOW' | 'MEDIUM' | 'HIGH';
+  spectreGrounding: boolean;
   spectreMode: 'basic' | 'agent';
 }
 export namespace Settings {
@@ -89,28 +91,28 @@ export namespace Settings {
 @injectable()
 export class SettingsService {
   @inject(FileService)
-  protected readonly fileService: FileService;
+  protected readonly fileService!: FileService;
 
   @inject(FileSystemExt)
-  protected readonly fileSystemExt: FileSystemExt;
+  protected readonly fileSystemExt!: FileSystemExt;
 
   @inject(ConfigService)
-  protected readonly configService: ConfigService;
+  protected readonly configService!: ConfigService;
 
   @inject(PreferenceService)
-  protected readonly preferenceService: PreferenceService;
+  protected readonly preferenceService!: PreferenceService;
 
   @inject(FrontendApplicationStateService)
-  protected readonly appStateService: FrontendApplicationStateService;
+  protected readonly appStateService!: FrontendApplicationStateService;
 
   @inject(AsyncLocalizationProvider)
-  protected readonly localizationProvider: AsyncLocalizationProvider;
+  protected readonly localizationProvider!: AsyncLocalizationProvider;
 
   @inject(CommandService)
-  protected commandService: CommandService;
+  protected commandService!: CommandService;
 
   @inject(ThemeService)
-  private readonly themeService: ThemeService;
+  private readonly themeService!: ThemeService;
 
   protected readonly onDidChangeEmitter = new Emitter<Readonly<Settings>>();
   readonly onDidChange = this.onDidChangeEmitter.event;
@@ -118,10 +120,20 @@ export class SettingsService {
   readonly onDidReset = this.onDidResetEmitter.event;
 
   protected ready = new Deferred<void>();
-  protected _settings: Settings;
+  protected _settings!: Settings;
 
   @postConstruct()
   protected init(): void {
+    // Verify all injected dependencies are available for type safety
+    if (!this.fileService) throw new Error('FileService not properly injected');
+    if (!this.fileSystemExt) throw new Error('FileSystemExt not properly injected');
+    if (!this.configService) throw new Error('ConfigService not properly injected');
+    if (!this.preferenceService) throw new Error('PreferenceService not properly injected');
+    if (!this.appStateService) throw new Error('FrontendApplicationStateService not properly injected');
+    if (!this.localizationProvider) throw new Error('AsyncLocalizationProvider not properly injected');
+    if (!this.commandService) throw new Error('CommandService not properly injected');
+    if (!this.themeService) throw new Error('ThemeService not properly injected');
+
     this.appStateService.reachedState('ready').then(async () => {
       const settings = await this.loadSettings();
       this._settings = deepClone(settings);
@@ -158,6 +170,8 @@ export class SettingsService {
       sketchbookShowAllFiles,
       // Spectre AI settings
       spectreModel,
+      spectreThinkingLevel,
+      spectreGrounding,
       spectreMode,
       cliConfig,
     ] = await Promise.all([
@@ -189,9 +203,17 @@ export class SettingsService {
       this.preferenceService.get<boolean>(UPLOAD_VERIFY_SETTING, true),
       this.preferenceService.get<boolean>(SHOW_ALL_FILES_SETTING, false),
       // Spectre AI settings
-      this.preferenceService.get<'gemini-2.5-flash' | 'gemini-2.5-flash-lite'>(
+      this.preferenceService.get<'gemini-3.1-flash-lite' | 'gemma-4-31b' | 'gemma-4-26b'>(
         'arduino.spectre.model',
-        'gemini-2.5-flash'
+        'gemini-3.1-flash-lite'
+      ),
+      this.preferenceService.get<'OFF' | 'LOW' | 'MEDIUM' | 'HIGH'>(
+        'arduino.spectre.thinkingLevel',
+        'OFF'
+      ),
+      this.preferenceService.get<boolean>(
+        'arduino.spectre.grounding',
+        false
       ),
       this.preferenceService.get<'basic' | 'agent'>(
         'arduino.spectre.mode',
@@ -228,6 +250,8 @@ export class SettingsService {
       network,
       // Spectre AI settings
       spectreModel,
+      spectreThinkingLevel,
+      spectreGrounding,
       spectreMode,
     };
   }
@@ -318,6 +342,8 @@ export class SettingsService {
       sketchbookShowAllFiles,
       // Spectre AI settings
       spectreModel,
+      spectreThinkingLevel,
+      spectreGrounding,
       spectreMode,
     } = this._settings;
     const [cliConfig, sketchDirUri] = await Promise.all([
@@ -352,6 +378,8 @@ export class SettingsService {
       this.savePreference(SHOW_ALL_FILES_SETTING, sketchbookShowAllFiles),
       // Spectre AI preferences
       this.savePreference('arduino.spectre.model', spectreModel),
+      this.savePreference('arduino.spectre.thinkingLevel', spectreThinkingLevel),
+      this.savePreference('arduino.spectre.grounding', spectreGrounding),
       this.savePreference('arduino.spectre.mode', spectreMode),
       this.configService.setConfiguration(config),
     ]);

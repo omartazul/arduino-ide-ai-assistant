@@ -179,6 +179,8 @@ const WIDGET_TIMING = {
 const PREF_KEYS = {
   MODE: 'arduino.spectre.mode',
   MODEL: 'arduino.spectre.model',
+  THINKING_LEVEL: 'arduino.spectre.thinkingLevel',
+  GROUNDING: 'arduino.spectre.grounding',
 } as const;
 
 import { ArduinoPreferences } from '../arduino-preferences';
@@ -247,21 +249,21 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
   static readonly ID = 'arduino-spectre-widget';
   static readonly LABEL = 'Spectre';
 
-  @inject(SpectreAiService) private readonly ai: SpectreAiService;
+  @inject(SpectreAiService) private readonly ai!: SpectreAiService;
   @inject(SpectreAiFrontendClient)
-  private readonly aiClient: SpectreAiFrontendClient;
-  @inject(ArduinoPreferences) private readonly prefs: ArduinoPreferences;
-  @inject(StorageService) private readonly storage: StorageService;
+  private readonly aiClient!: SpectreAiFrontendClient;
+  @inject(ArduinoPreferences) private readonly prefs!: ArduinoPreferences;
+  @inject(StorageService) private readonly storage!: StorageService;
   @inject(SketchesServiceClientImpl)
-  private readonly sketchesClient: SketchesServiceClientImpl;
-  @inject(CommandService) private readonly commands: CommandService;
+  private readonly sketchesClient!: SketchesServiceClientImpl;
+  @inject(CommandService) private readonly commands!: CommandService;
   @inject(OutputChannelManager)
-  private readonly outputChannels: OutputChannelManager;
-  @inject(EditorManager) private readonly editorManager: EditorManager;
+  private readonly outputChannels!: OutputChannelManager;
+  @inject(EditorManager) private readonly editorManager!: EditorManager;
   @inject(BoardsServiceProvider)
-  private readonly boardsServiceProvider: BoardsServiceProvider;
+  private readonly boardsServiceProvider!: BoardsServiceProvider;
   @inject(BoardsService) private readonly boardsService!: BoardsService;
-  @inject(BoardsDataStore) private readonly boardsDataStore: BoardsDataStore;
+  @inject(BoardsDataStore) private readonly boardsDataStore!: BoardsDataStore;
   @inject(MonitorManagerProxyClient)
   private readonly monitorManagerProxy!: MonitorManagerProxyClient;
   @inject(LibraryService) private readonly libraryService!: LibraryService;
@@ -906,6 +908,8 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
           abortKey,
           model,
           sketchFiles,
+          thinkingLevel: this.prefs[PREF_KEYS.THINKING_LEVEL],
+          enableGoogleSearch: this.prefs[PREF_KEYS.GROUNDING] === true,
         });
         return; // finally block will reset this.sending
       }
@@ -916,6 +920,7 @@ export class SpectreWidget extends ReactWidget implements SpectreAiClient {
           ai: this.ai,
           getStateData: () => this.stateData,
           memoryManager: this.memoryManager,
+          prefs: this.prefs, // Add this line
           getPacificDate: () => ConfigHelpers.getPacificDate(),
           persistTrackingData: () => this.persistTrackingData(),
           isNetworkError: (message) => this.isNetworkError(message),

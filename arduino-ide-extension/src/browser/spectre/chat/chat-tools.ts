@@ -15,6 +15,7 @@ import type { ChatSession } from '../ui/widget-rendering';
 import { TokenCounter } from '../utils/token-counter';
 import { autoTitle } from '../utils/auto-title';
 import * as UiUtilities from '../ui/ui-utilities';
+import { normalizeThinkingLevel } from '../../../common/spectre-utils';
 
 /**
  * Tracks individual API requests for quota and rate limit monitoring.
@@ -59,7 +60,11 @@ export interface BasicChatStateData {
 
 export interface ValidateAndPrepareDeps {
   stateData: BasicChatStateData;
-  prefs: { ['arduino.spectre.model']: string };
+  prefs: {
+    ['arduino.spectre.model']: string;
+    ['arduino.spectre.thinkingLevel']: string;
+    ['arduino.spectre.grounding']: boolean;
+  };
   sending: boolean;
   lastSendAtRef: { value: number };
   inputElement?: HTMLTextAreaElement | null;
@@ -226,6 +231,11 @@ export interface BasicModeSendDeps {
   getStateData: () => BasicChatStateData;
   memoryManager: MemoryManager;
 
+  prefs: {
+    ['arduino.spectre.model']: string;
+    ['arduino.spectre.thinkingLevel']: string;
+    ['arduino.spectre.grounding']: boolean;
+  };
   getPacificDate: () => string;
   persistTrackingData: () => Promise<void> | void;
   isNetworkError: (message: string) => boolean;
@@ -302,6 +312,10 @@ export function startBasicModeGeneration(params: {
     model,
     abortKey,
     conversationHistory,
+    thinkingLevel: normalizeThinkingLevel(
+      deps.prefs['arduino.spectre.thinkingLevel']
+    ),
+    enableGoogleSearch: deps.prefs['arduino.spectre.grounding'] === true,
   });
 
   deps.ai
@@ -369,8 +383,12 @@ function buildConversationHistory(params: {
     return conversationHistory;
   }
 
-  const isFlashLite = model === 'gemini-2.5-flash-lite';
-  const targetBudget = isFlashLite ? 30_000 : 50_000;
+  // Determine token budget based on model type
+  const targetBudget = (() => {
+    if (model === 'gemini-3.1-flash-lite') return 30_000; // Lightweight model
+    if (model.startsWith('gemma-4-')) return 40_000; // Gemma high-capacity models
+    return 50_000; // Default/other models
+  })();
 
   const sketchContext =
     sketchFiles.length > 0 ? buildSketchContext(sketchFiles) : '';
@@ -428,15 +446,25 @@ function createGenerationConfig(params: {
     text: string;
     parts?: any[];
   }>;
+  thinkingLevel: SpectreAiRequest['thinkingLevel'];
+  enableGoogleSearch: boolean;
 }): SpectreAiRequest {
-  const { contextualPrompt, model, abortKey, conversationHistory } = params;
+  const {
+    contextualPrompt,
+    model,
+    abortKey,
+    conversationHistory,
+    thinkingLevel,
+    enableGoogleSearch,
+  } = params;
   return {
     prompt: contextualPrompt,
     model: model as SpectreAiRequest['model'],
     generationConfig: getModelGenerationConfig(),
-    includeThoughts: shouldIncludeThoughts(model),
+    includeThoughts: shouldIncludeThoughts(thinkingLevel),
     abortKey,
-    thinkingBudget: -1,
+    thinkingLevel,
+    enableGoogleSearch,
     context: buildConversationContext(conversationHistory),
   };
 }
@@ -448,8 +476,10 @@ function getModelGenerationConfig(): { maxOutputTokens: number; topP: number } {
   };
 }
 
-function shouldIncludeThoughts(model: string): boolean {
-  return model === 'gemini-2.5-flash-lite';
+function shouldIncludeThoughts(
+  thinkingLevel: SpectreAiRequest['thinkingLevel']
+): boolean {
+  return thinkingLevel !== 'OFF';
 }
 
 function buildConversationContext(

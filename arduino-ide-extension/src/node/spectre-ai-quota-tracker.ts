@@ -1,3 +1,12 @@
+/**
+ * Per-model quota and rate-limit tracker for Spectre AI requests.
+ *
+ * Manages RPM/RPD accounting, token reservations, spacing enforcement,
+ * and produces quota updates for the request scheduler.
+ *
+ * @author Tazul Islam
+ */
+
 import { SpectreQuotaUpdate } from '../common/protocol/spectre-ai-service';
 import { getPacificMidnight } from './spectre-ai-request-utils';
 
@@ -34,7 +43,7 @@ export class SpectreAiQuotaTracker {
   private cachedRpmLists: Record<ModelId, UnixMs[]> = Object.create(null);
   private cachedDailyLists: Record<ModelId, UnixMs[]> = Object.create(null);
 
-  private lastUsedModel: ModelId = 'gemini-2.5-flash';
+  private lastUsedModel: ModelId = 'gemini-3.1-flash-lite';
 
   constructor(
     private readonly config: QuotaTrackerConfig,

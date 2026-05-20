@@ -65,7 +65,7 @@ const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
 @injectable()
 export class MemoryManager {
   @inject(SpectreAiService)
-  private readonly aiService: SpectreAiService;
+  private readonly aiService!: SpectreAiService;
 
   /**
    * Creates a new conversation memory structure.
@@ -246,7 +246,7 @@ ${conversationText}
     try {
       const response = await this.aiService.generate({
         prompt: summarizationPrompt,
-        model: 'gemini-2.5-flash-lite', // Use lite for speed
+        model: 'gemini-3.1-flash-lite', // Use lightweight model for fast summarization
         generationConfig: {
           maxOutputTokens: 2048, // Increased from 1024 for better summaries
           temperature: 0.2, // Lower for more consistency
@@ -386,7 +386,7 @@ ${conversationText}
 
     const response = await this.aiService.generate({
       prompt: compressionPrompt,
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.1-flash-lite',
       generationConfig: {
         maxOutputTokens: 4096,
         temperature: 0.1,

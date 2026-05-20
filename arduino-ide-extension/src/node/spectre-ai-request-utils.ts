@@ -1,24 +1,140 @@
-import { SpectreAiRequest } from '../common/protocol/spectre-ai-service';
+/**
+ * Request shaping and model utilities for Spectre AI.
+ *
+ * Includes model capability resolution, token estimation, prompt building,
+ * and helpers for mapping/validating supported endpoint models.
+ *
+ * @author Tazul Islam
+ */
+
+import {
+  SpectreAiRequest,
+  SpectreThinkingLevel,
+} from '../common/protocol/spectre-ai-service';
 import {
   AGENT_MODE_INSTRUCTION,
   BASIC_MODE_INSTRUCTION,
 } from './spectre-ai-instructions';
+import { normalizeThinkingLevel } from '../common/spectre-utils';
+
+export const SUPPORTED_MODELS = [
+  'gemini-3.1-flash-lite',
+  'gemma-4-31b',
+  'gemma-4-26b',
+] as const;
+
+export type SupportedModel = (typeof SUPPORTED_MODELS)[number];
+
+const AVAILABLE_MODELS: Record<SupportedModel, string> = {
+  'gemini-3.1-flash-lite': 'gemini-3.1-flash-lite',
+  'gemma-4-31b': 'gemma-4-31b-it',
+  'gemma-4-26b': 'gemma-4-26b-a4b-it',
+};
+
+const MODEL_CAPABILITIES: Record<
+  SupportedModel,
+  { googleSearch: boolean; functionCalling: boolean; thinking: boolean }
+> = {
+  'gemini-3.1-flash-lite': {
+    googleSearch: true,
+    functionCalling: true,
+    thinking: true,
+  },
+  'gemma-4-31b': { googleSearch: true, functionCalling: true, thinking: true },
+  'gemma-4-26b': { googleSearch: true, functionCalling: true, thinking: true },
+};
+
+export function isSupportedModel(model: string | undefined): model is SupportedModel {
+  if (!model) return false;
+  return (SUPPORTED_MODELS as readonly string[]).includes(model);
+}
+
+export function resolveSupportedModel(model: string | undefined): SupportedModel {
+  const resolved = model || 'gemini-3.1-flash-lite';
+  if (isSupportedModel(resolved)) {
+    return resolved;
+  }
+  throw new Error(
+    `Unsupported model: ${model ?? 'undefined'}. Allowed models: ${SUPPORTED_MODELS.join(', ')}`
+  );
+}
+
+export function supportsThinking(model: string): boolean {
+  const resolved = resolveCapabilityModel(model);
+  return resolved ? MODEL_CAPABILITIES[resolved].thinking : false;
+}
+
+export function supportsFunctionCalling(model: string): boolean {
+  const resolved = resolveCapabilityModel(model);
+  return resolved ? MODEL_CAPABILITIES[resolved].functionCalling : false;
+}
+
+export function supportsGoogleSearch(model: string): boolean {
+  const resolved = resolveCapabilityModel(model);
+  return resolved ? MODEL_CAPABILITIES[resolved].googleSearch : false;
+}
+
+function resolveCapabilityModel(model: string): SupportedModel | undefined {
+  const normalized = model.toLowerCase();
+  if (normalized.includes('gemini-3.1-flash-lite')) {
+    return 'gemini-3.1-flash-lite';
+  }
+  if (normalized.includes('gemma-4-31b')) {
+    return 'gemma-4-31b';
+  }
+  if (normalized.includes('gemma-4-26b')) {
+    return 'gemma-4-26b';
+  }
+  return undefined;
+}
 
 /**
- * Maps user-provided model name to valid Gemini endpoint.
- * Defaults to gemini-2.5-flash for unknown models.
+ * Maps supported model name to valid Gemini endpoint.
  */
-export function mapModel(model: string): string {
-  return ['gemini-2.5-flash', 'gemini-2.5-flash-lite'].includes(model)
-    ? model
-    : 'gemini-2.5-flash';
+export function mapModel(model: SupportedModel): string {
+  return AVAILABLE_MODELS[model];
+}
+
+export function resolveThinkingLevelForModel(
+  model: string,
+  raw: string | undefined
+): SpectreThinkingLevel | undefined {
+  const normalized = normalizeThinkingLevel(raw);
+  if (normalized === 'OFF') {
+    return undefined;
+  }
+  const resolved = resolveCapabilityModel(model);
+  if (!resolved || !MODEL_CAPABILITIES[resolved].thinking) {
+    return undefined;
+  }
+  // Gemma 4 models only support OFF and HIGH. Map LOW/MEDIUM -> HIGH.
+  if (resolved.startsWith('gemma-4-')) {
+    return 'HIGH';
+  }
+
+  // Other models: respect user's selected (normalized) level
+  return normalized;
+}
+
+export function getThinkingConfig(
+  model: string,
+  raw: string | undefined
+): { thinkingLevel: SpectreThinkingLevel } | undefined {
+  const level = resolveThinkingLevelForModel(model, raw);
+  return level ? { thinkingLevel: level } : undefined;
 }
 
 /**
  * Builds final prompt with reasoning instruction.
  * Encourages step-by-step thinking for better quality responses.
  */
-export function buildPrompt(userPrompt: string): string {
+export function buildPrompt(
+  userPrompt: string,
+  thinkingLevel?: string
+): string {
+  if (normalizeThinkingLevel(thinkingLevel) === 'OFF') {
+    return userPrompt;
+  }
   return `Think step by step, then answer clearly.\n\n${userPrompt}`;
 }
 
@@ -92,9 +208,10 @@ export function estimateTotalInputTokens(request: SpectreAiRequest): number {
 
   if (request.context?.conversation && request.context.conversation.length > 0) {
     for (const msg of request.context.conversation) {
-      if ('text' in msg) {
+      if ('text' in msg && msg.text) {
         promptEstimate += estimateTokens(msg.text);
-      } else if ('parts' in msg) {
+      }
+      if ('parts' in msg && msg.parts) {
         promptEstimate += estimateTokens(JSON.stringify(msg.parts));
       }
     }
@@ -123,12 +240,14 @@ export function getPacificMidnight(): number {
  */
 const TEMPERATURE_CONFIG = {
   basicMode: {
-    'gemini-2.5-flash': 0.8,
-    'gemini-2.5-flash-lite': 0.7,
+    'gemini-3.1-flash-lite': 0.7,
+    'gemma-4-31b': 0.8,
+    'gemma-4-26b': 0.8,
   },
   agentMode: {
-    'gemini-2.5-flash': 0.4,
-    'gemini-2.5-flash-lite': 0.3,
+    'gemini-3.1-flash-lite': 0.3,
+    'gemma-4-31b': 0.4,
+    'gemma-4-26b': 0.4,
   },
 } as const;
 
@@ -141,12 +260,11 @@ export function getOptimalTemperature(isAgentMode: boolean, model: string): numb
     : TEMPERATURE_CONFIG.basicMode;
 
   const normalizedModel = model.toLowerCase();
-  if (normalizedModel.includes('flash-lite') || normalizedModel.includes('flashlite')) {
-    return config['gemini-2.5-flash-lite'];
+  if (normalizedModel.includes('gemma-4-31b')) {
+    return config['gemma-4-31b'];
   }
-  if (normalizedModel.includes('flash')) {
-    return config['gemini-2.5-flash'];
+  if (normalizedModel.includes('gemma-4-26b')) {
+    return config['gemma-4-26b'];
   }
-
-  return config['gemini-2.5-flash'];
+  return config['gemini-3.1-flash-lite'];
 }

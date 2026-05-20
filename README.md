@@ -5,18 +5,18 @@
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)]()
 [![Arduino IDE](https://img.shields.io/badge/Arduino%20IDE-2.3.8-teal)]()
-[![Gemini AI](https://img.shields.io/badge/Powered%20by-Gemini%202.5-orange)]()
+[![Gemini AI](https://img.shields.io/badge/Powered%20by-Gemini%203.1-orange)]()
 [![Version](https://img.shields.io/badge/version-3.3.8-teal)]()
 
 ## What is Arduino IDE AI Assistant?
 
-Arduino IDE AI Assistant is an enhanced version of Arduino IDE 2.x with Google's Gemini 2.5 (Flash / Flash-Lite) integration that provides:
+Arduino IDE AI Assistant is an enhanced version of Arduino IDE 2.x with Google's Gemini 3.1 Flash-Lite and Gemma 4 model integration that provides:
 
 - **AI-powered code generation** for Arduino sketches
 - **Autonomous agent mode** that can create/modify sketches, install libraries, and verify code
 - **Contextual assistance** based on your current sketch
 - **Conversation memory** (rolling buffer + summarization) designed for long sessions
-- **Quota-aware defaults** for Gemini 2.5 (250k input TPM, 10–15 RPM, plus daily caps)
+- **Quota-aware defaults** for the current Gemini/Gemma agent stack (250k input TPM, 15 RPM, plus daily caps)
 
 ## Screenshots 📸
 
@@ -106,7 +106,7 @@ The installer will be in `electron-app/dist/`
 1. Open Arduino IDE AI Assistant
 2. Click the AI icon in the sidebar
 3. Enter your Gemini API key
-4. Choose your model (`gemini-2.5-flash` or `gemini-2.5-flash-lite`)
+4. Choose your model (`gemini-3.1-flash-lite`, `gemma-4-31b`, or `gemma-4-26b`)
 
 ### 3. Start Using
 
@@ -134,20 +134,21 @@ AI: [Creates sketch, installs DHT library, sets up code automatically]
 ### Architecture
 - **Frontend**: Electron + Theia IDE framework
 - **Backend**: Node.js + arduino-cli daemon
-- **AI Integration**: Google Gemini 2.5 Flash/Flash-Lite
+- **AI Integration**: Google Gemini 3.1 Flash-Lite and Gemma 4 variants
 - **Memory System**: Dynamic rolling buffer with AI summarization
 - **Storage**: localStorage for session persistence
 
 ### Memory System
 - Rolling buffer: 40 messages (25k tokens)
 - Memory bank: 100k tokens
-- Summarization model: `gemini-2.5-flash-lite`
+- Summarization model: `gemini-3.1-flash-lite`
 
-### API Limits (Gemini Free Tier)
+### API Limits (Current Enforced Defaults)
 - Input: 250k tokens per minute
-- Requests: 10-15 per minute
-- Requests per day: 250 (Flash) / 1000 (Flash-Lite)
+- Requests: 15 per minute for all supported models
+- Requests per day: 1,500 for `gemini-3.1-flash-lite` / 500 for `gemma-4-31b` and `gemma-4-26b`
 - Output: 65,536 tokens max
+- Input TPM applies to prompt/input tokens only; output tokens do not count toward the minute cap
 
 ## Project Structure
 
@@ -210,8 +211,9 @@ arduino-ide-ai-assistant/
 ## Known Limitations
 
 - Requires internet connection for AI features
-- Gemini API rate limits (free tier)
+- Gemini API quota and rate limits vary by account, model, and billing state; the app also enforces local defaults
 - Agent mode reliability depends on task complexity
+- Gemini 3 agent turns require the model's function-call signatures to be preserved across tool loops
 - English language optimized (multilingual possible)
 
 ## Troubleshooting
@@ -224,6 +226,12 @@ arduino-ide-ai-assistant/
 **Agent mode loops:**
 - Use latest version (v3.3.8+)
 - Clear session if issue persists
+- Rebuild the app if you change agent-loop code; the extension and Electron app must both refresh
+
+**Agent mode returns "finished" but no sketch changed:**
+- This usually means the model responded without a usable function call, or the tool-call turn was not preserved correctly across the next request
+- On Gemini 3 models, the first function-call part in a turn must keep its `thoughtSignature` and function-call `id`
+- If you are debugging manually, reload the window after rebuild so the latest extension bundle is active
 
 **Memory issues:**
 - localStorage automatically manages 100k tokens
@@ -245,7 +253,7 @@ This project maintains the original Arduino IDE license:
 
 - **Original Arduino IDE**: Arduino Team
 - **Spectre AI Integration**: Tazul Islam (@omartazul)
-- **AI Model**: Google Gemini 2.5
+- **AI Model**: Google Gemini 3.1 Flash-Lite and Gemma 4
 - **Framework**: Eclipse Theia
 
 ## Links

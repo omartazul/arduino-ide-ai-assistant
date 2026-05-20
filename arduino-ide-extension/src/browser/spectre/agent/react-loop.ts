@@ -10,16 +10,25 @@ import { AgentFunctionCall } from './function-call-runner';
 export type AgentConversationMessage =
   | {
       role: 'user' | 'model';
-      text: string;
+      text?: string;
+      functionCalls?: AgentFunctionCall[];
       name?: undefined;
       response?: undefined;
     }
-  | { role: 'function'; name: string; response: unknown; text?: undefined };
+  | {
+      role: 'function';
+      name: string;
+      callId?: string;
+      response: unknown;
+      text?: undefined;
+      functionCalls?: undefined;
+    };
 
 export type AiGenerateFn = (params: {
   prompt: string;
   model: string | undefined;
   enableAgentMode: true;
+  enforceFunctionCalling?: boolean;
   context: { conversation: unknown[] };
   generationConfig: { maxOutputTokens: number; topP: number };
   abortKey: string | undefined;
@@ -161,20 +170,41 @@ async function executeReActIteration(params: {
     prompt: currentPrompt,
     model: model,
     enableAgentMode: true,
+    enforceFunctionCalling: iteration === 1,
     context: {
       conversation: conversationHistory.map((m) => {
         if (m.role === 'function') {
           return {
-            role: 'function' as const,
+            role: 'user' as const, // Gemini SDK expects user role for function response
             parts: [
               {
                 functionResponse: {
                   name: m.name,
+                  id: m.callId,
                   response: m.response,
                 },
               },
             ],
           };
+        }
+        
+        if (m.role === 'model' && m.functionCalls) {
+          const parts: any[] = [];
+          if (m.text) {
+            parts.push({ text: m.text });
+          }
+          m.functionCalls.forEach(fc => {
+            const fcPart: any = {
+              functionCall: {
+                name: fc.name,
+                args: fc.args,
+                id: fc.id,
+              },
+              thoughtSignature: fc.thoughtSignature ?? fc.thought_signature,
+            };
+            parts.push(fcPart);
+          });
+          return { role: 'model' as const, parts };
         }
 
         return {

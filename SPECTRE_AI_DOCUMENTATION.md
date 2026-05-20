@@ -43,7 +43,7 @@ Prerequisites:
 Quick run:
 
 1. In the IDE, open the Spectre assistant panel.
-2. Select the model in Settings: `gemini-2.5-flash` for comprehensive responses or `gemini-2.5-flash-lite` to reduce cost.
+2. Select the model in Settings: `gemini-3.1-flash-lite` for fast tasks, or `gemma-4-31b`/`gemma-4-26b` for comprehensive responses.
 3. Ask a question or select an agent action (e.g., "Improve loop performance" or "Generate I2C scan routine").
 
 For developers: run the extension in dev mode:
@@ -162,7 +162,7 @@ Key behaviors (defaults in `arduino-ide-extension/src/browser/spectre/memory/mem
 - Rolling buffer size: up to 40 recent messages.
 - Summarization trigger: when recent messages reach 30+ messages or exceed ~25,000 estimated tokens.
 - Memory bank cap: ~100,000 estimated tokens.
-- Summarization model: `gemini-2.5-flash-lite`.
+- Summarization model: `gemini-3.1-flash-lite`.
 - Summary sizes: first-level summaries up to ~2048 output tokens; compressed/meta summaries up to ~4096 output tokens.
 - Summarization temperature: 0.2 (for consistent summaries).
 
@@ -172,7 +172,7 @@ The memory system aims to keep conversation state across sessions while staying 
 
 ## 5. Model & tokens
 
-Supported models (UI preference): `gemini-2.5-flash` and `gemini-2.5-flash-lite`.
+Supported models (UI preference): `gemini-3.1-flash-lite`, `gemma-4-31b`, and `gemma-4-26b`.
 
 Token budgets (prompt assembly targets):
 - Flash-Lite: ~30k tokens/request
@@ -204,7 +204,7 @@ Sample pseudo-call:
 await spectreAiClient.request('ask', {
 	sessionId: 'abcd',
 	prompt: 'Generate a simple I2C scanner',
-	model: 'gemini-2.5-flash-lite'
+	model: 'gemini-3.1-flash-lite'
 });
 ```
 
@@ -213,7 +213,9 @@ await spectreAiClient.request('ask', {
 ## 7. Spectre APIs & configuration
 
 Preferences:
-- `arduino.spectre.model` — `gemini-2.5-flash` or `gemini-2.5-flash-lite`.
+- `arduino.spectre.model` — `gemini-3.1-flash-lite`, `gemma-4-31b`, or `gemma-4-26b`.
+- `arduino.spectre.thinkingLevel` — `OFF`, `LOW`, `MEDIUM`, or `HIGH`.
+- `arduino.spectre.grounding` — boolean; enables Google Search grounding when set to true.
 - `arduino.spectre.mode` — `basic` (conversational) or `agent` (tool-using automation).
 
 Memory retention defaults are currently configured in code (see `memory/memory-manager.ts`) rather than exposed as user preferences.
@@ -280,7 +282,7 @@ CI hooks:
 ## 11. Troubleshooting & FAQ
 
 Q: Model returns irrelevant or unhelpful answers
-A: Increase context fidelity by switching to `gemini-2.5-flash` or insert explicit sketch and board details.
+A: Increase context fidelity by switching to `gemma-4-31b` or insert explicit sketch and board details.
 
 Q: Missing session memory
 A: Look for keys `spectre-memory-*` in `localStorage` and use the import/export UI; ensure the running Spectre instance has read access to localStorage.

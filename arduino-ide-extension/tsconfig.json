@@ -7,8 +7,6 @@
     "noImplicitOverride": true,
     "strictNullChecks": true,
     "experimentalDecorators": true,
-    "downlevelIteration": true,
-    "ignoreDeprecations": "6.0",
     "emitDecoratorMetadata": true,
     "module": "Node16",
     "moduleResolution": "node16",

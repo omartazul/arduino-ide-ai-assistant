@@ -477,6 +477,12 @@ export class SettingsComponent extends React.Component<
               {nls.localize('arduino/spectre/model', 'Model') + ':'}
             </div>
             <div className="flex-line">
+              {nls.localize('arduino/spectre/thinkingLevel', 'Thinking level') + ':'}
+            </div>
+            <div className="flex-line">
+              {nls.localize('arduino/spectre/grounding', 'Search grounding') + ':'}
+            </div>
+            <div className="flex-line">
               {nls.localize('arduino/spectre/mode', 'Mode') + ':'}
             </div>
           </div>
@@ -519,17 +525,65 @@ export class SettingsComponent extends React.Component<
               <select
                 className="theia-select"
                 value={this.state.spectreModel}
+                onChange={(e) => {
+                  const newModel = e.target.value as Settings['spectreModel'];
+                  // If user switches to a Gemma model, normalize thinking level
+                  // Gemma only supports OFF and HIGH -> map LOW/MEDIUM to HIGH
+                  const currentLevel = this.state.spectreThinkingLevel;
+                  const mappedLevel =
+                    newModel.startsWith('gemma-4-') && (currentLevel === 'LOW' || currentLevel === 'MEDIUM')
+                      ? 'HIGH'
+                      : currentLevel;
+                  this.setState({ spectreModel: newModel, spectreThinkingLevel: mappedLevel });
+                }}
+              >
+                <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+                <option value="gemma-4-31b">Gemma 4 31B</option>
+                <option value="gemma-4-26b">Gemma 4 26B</option>
+              </select>
+            </div>
+            <div className="flex-line">
+              <select
+                className="theia-select"
+                value={this.state.spectreThinkingLevel}
                 onChange={(e) =>
                   this.setState({
-                    spectreModel: e.target.value as Settings['spectreModel'],
+                    spectreThinkingLevel:
+                      e.target.value as Settings['spectreThinkingLevel'],
                   })
                 }
               >
-                <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                <option value="gemini-2.5-flash-lite">
-                  Gemini 2.5 Flash Lite
-                </option>
+                {this.state.spectreModel && this.state.spectreModel.startsWith('gemma-4-') ? (
+                  // Gemma models only expose OFF and HIGH
+                  <>
+                    <option value="OFF">OFF</option>
+                    <option value="HIGH">HIGH</option>
+                  </>
+                ) : (
+                  // Other models: full set
+                  <>
+                    <option value="OFF">OFF</option>
+                    <option value="LOW">LOW</option>
+                    <option value="MEDIUM">MEDIUM</option>
+                    <option value="HIGH">HIGH</option>
+                  </>
+                )}
               </select>
+            </div>
+            <div className="flex-line">
+              <label className="flex-line">
+                <input
+                  type="checkbox"
+                  checked={this.state.spectreGrounding}
+                  onChange={(e) =>
+                    this.setState({ spectreGrounding: e.target.checked })
+                  }
+                />
+                {nls.localize(
+                  'arduino/spectre/groundingEnabled',
+                  'Enable Google Search grounding'
+                )}
+              </label>
             </div>
             <div className="flex-line">
               <select

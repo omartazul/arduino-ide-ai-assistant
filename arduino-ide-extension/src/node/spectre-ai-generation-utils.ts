@@ -1,8 +1,18 @@
+/**
+ * Generation configuration and retry helpers for Spectre AI requests.
+ *
+ * Builds standardized generation configs, validates sampling parameters,
+ * and decides retry/backoff behavior for failed generation attempts.
+ *
+ * @author Tazul Islam
+ */
+
 import { SpectreAiResponse } from '../common/protocol/spectre-ai-service';
 import { TIMING_CONSTANTS } from '../common/protocol/spectre-types';
 import { classifyError } from './spectre-ai-error-utils';
 import {
   clampOutputTokens,
+  getThinkingConfig,
   getOptimalTemperature,
 } from './spectre-ai-request-utils';
 
@@ -10,10 +20,10 @@ export function buildStandardGenConfig(params: {
   model: string;
   isAgentMode: boolean;
   generationConfig: any;
-  thinkingBudget: number | undefined;
+  thinkingLevel: string | undefined;
   maxOutputTokensCap: number;
 }): any {
-  const { model, isAgentMode, generationConfig, thinkingBudget, maxOutputTokensCap } =
+  const { model, isAgentMode, generationConfig, thinkingLevel, maxOutputTokensCap } =
     params;
 
   const optimalTemperature = getOptimalTemperature(isAgentMode, model);
@@ -28,7 +38,12 @@ export function buildStandardGenConfig(params: {
   };
 
   validateSamplingConfig(genConfig, optimalTemperature);
-  applyThinkingConfig(genConfig, thinkingBudget, generationConfig);
+  const thinkingConfig = getThinkingConfig(model, thinkingLevel);
+  if (thinkingConfig) {
+    genConfig.thinkingConfig = thinkingConfig;
+  } else if ('thinkingConfig' in genConfig) {
+    delete genConfig.thinkingConfig;
+  }
 
   return genConfig;
 }
@@ -54,26 +69,12 @@ export function applyThoughtSummary(
 
 export function decideStandardGenerationRetry(params: {
   err: unknown;
-  msg: string;
   attempt: number;
   maxRetries: number;
-  triedNoThinking: boolean;
-  triedNoGoogleSearch: boolean;
 }):
-  | { action: 'retry-no-thinking' }
-  | { action: 'retry-no-google-search' }
   | { action: 'retry'; backoffMs: number; delta: string }
   | { action: 'throw'; message: string } {
-  const { err, msg, attempt, maxRetries, triedNoThinking, triedNoGoogleSearch } =
-    params;
-
-  if (!triedNoThinking && /Unknown name \"thinkingConfig\"/i.test(msg)) {
-    return { action: 'retry-no-thinking' };
-  }
-
-  if (!triedNoGoogleSearch && /Unknown|google_search|googleSearch|tool/i.test(msg)) {
-    return { action: 'retry-no-google-search' };
-  }
+  const { err, attempt, maxRetries } = params;
 
   const { category, retryable, message } = classifyError(err);
   if (category === 'auth') {
@@ -116,20 +117,5 @@ function validateSamplingConfig(genConfig: any, defaultTemperature: number) {
   const isValidTopP = isNumberTopP && topP > 0 && topP <= 1;
   if (!isValidTopP) {
     genConfig.topP = 0.95;
-  }
-}
-
-function applyThinkingConfig(
-  genConfig: any,
-  thinkingBudget: number | undefined,
-  generationConfig: any
-): void {
-  let effectiveBudget =
-    typeof thinkingBudget === 'number'
-      ? thinkingBudget
-      : (generationConfig as any)?.thinking?.budgetTokens;
-  if (effectiveBudget === undefined) effectiveBudget = -1;
-  if (effectiveBudget !== 0) {
-    genConfig.thinkingConfig = { thinkingBudget: effectiveBudget };
   }
 }

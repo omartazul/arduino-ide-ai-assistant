@@ -18,23 +18,17 @@ interface ModelConfig {
  */
 const MODEL_CONFIGS: Record<string, ModelConfig> = {
   // Current supported models (see preferences schema)
-  'gemini-2.5-flash': {
+  'gemini-3.1-flash-lite': {
     characterLimit: 100_000,
-    rpmLimit: 10,
+    rpmLimit: 15, // 500 RPD
   },
-  'gemini-2.5-flash-lite': {
-    characterLimit: 66_668,
-    rpmLimit: 15,
-  },
-
-  // Legacy/experimental models (kept for backward compatibility)
-  'gemini-2.0-flash-exp': {
+  'gemma-4-31b': {
     characterLimit: 100_000,
-    rpmLimit: 10,
+    rpmLimit: 15, // 1,500 RPD
   },
-  'gemini-1.5-flash': {
-    characterLimit: 66_668,
-    rpmLimit: 15,
+  'gemma-4-26b': {
+    characterLimit: 100_000,
+    rpmLimit: 15, // 1,500 RPD
   },
 };
 

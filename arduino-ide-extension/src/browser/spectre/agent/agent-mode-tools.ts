@@ -165,6 +165,8 @@ export interface FunctionCallingParams {
   abortKey: string;
   model: string;
   sketchFiles: SketchFile[];
+  thinkingLevel?: string;
+  enableGoogleSearch?: boolean;
 }
 
 export interface ProcessFunctionCallsParams {
@@ -231,7 +233,7 @@ export async function sendMessageWithFunctionCalling(params: {
   input: FunctionCallingParams;
 }): Promise<void> {
   const { deps, input } = params;
-  const { text, requestSeq, abortKey, model, sketchFiles } = input;
+  const { text, requestSeq, abortKey, model, sketchFiles, thinkingLevel, enableGoogleSearch } = input;
   const MAX_ITERATIONS = 10;
 
   const context = await setupReActLoop({
@@ -255,7 +257,13 @@ export async function sendMessageWithFunctionCalling(params: {
       actionHistory: context.actionHistory,
       shouldAbort: () => requestSeq !== deps.stateData.requestSeq,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      aiGenerate: (genParams) => deps.ai.generate(genParams as any),
+      aiGenerate: (genParams) =>
+        deps.ai.generate({
+          ...(genParams as any),
+          thinkingLevel,
+          enableGoogleSearch,
+          includeThoughts: thinkingLevel ? thinkingLevel !== 'OFF' : false,
+        } as any),
       addResponseToHistory: (response) =>
         addResponseToHistory({
           deps,
@@ -318,7 +326,7 @@ async function setupReActLoop(params: {
   const conversationHistory = await initializeConversationMemory({
     deps,
     text,
-    model: model || 'gemini-2.0-flash-exp',
+    model: model || 'gemini-3.1-flash-lite',
     contextualPrompt,
     sketchContext,
   });
@@ -360,7 +368,7 @@ async function initializeConversationMemory(params: {
   deps.saveSessionMemory(session.id);
   deps.updateMemoryStats();
 
-  const isFlashLite = model === 'gemini-2.5-flash-lite';
+  const isFlashLite = model.includes('flash-lite');
   const targetBudget = isFlashLite ? 30_000 : 50_000;
 
   deps.memoryManager.assemblePrompt(session.memory, {
@@ -457,11 +465,21 @@ function addResponseToHistory(params: {
   requestSeq: number;
 }): void {
   const { deps, response, conversationHistory, requestSeq } = params;
+  
+  if (response.functionCalls && response.functionCalls.length > 0) {
+    if (response.text) {
+      conversationHistory.push({ role: 'model', text: response.text, functionCalls: response.functionCalls });
+    } else {
+      conversationHistory.push({ role: 'model', functionCalls: response.functionCalls });
+    }
+  } else if (response.text) {
+    conversationHistory.push({ role: 'model', text: response.text });
+  }
+
   if (!response.text) {
     return;
   }
 
-  conversationHistory.push({ role: 'model', text: response.text });
   const { cleanText, tasks } = cleanAgentResponse({
     responseText: response.text,
     thoughtsTokens: response.meta?.thoughtsTokens,

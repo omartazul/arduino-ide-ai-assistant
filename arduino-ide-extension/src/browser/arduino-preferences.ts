@@ -319,11 +319,28 @@ const properties: ArduinoPreferenceSchemaProperties = {
   // Spectre AI Assistant Configuration
   'arduino.spectre.model': {
     type: 'string',
-    enum: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
-    default: 'gemini-2.5-flash',
+    enum: ['gemini-3.1-flash-lite', 'gemma-4-31b', 'gemma-4-26b'],
+    default: 'gemini-3.1-flash-lite',
     markdownDescription: nls.localize(
       'arduino/preferences/spectre.model',
-      "AI model used by the Spectre assistant. **'gemini-2.5-flash'** provides balanced performance and comprehensive responses. **'gemini-2.5-flash-lite'** offers faster response times with reduced token usage. Defaults to 'gemini-2.5-flash'."
+      "AI model used by the Spectre assistant. **'gemini-3.1-flash-lite'** offers fast response times with reduced token usage. **'gemma-4-31b'** and **'gemma-4-26b'** provide high-capacity reasoning capabilities. Defaults to 'gemini-3.1-flash-lite'."
+    ),
+  },
+  'arduino.spectre.thinkingLevel': {
+    type: 'string',
+    enum: ['OFF', 'LOW', 'MEDIUM', 'HIGH'],
+    default: 'OFF',
+    markdownDescription: nls.localize(
+      'arduino/preferences/spectre.thinkingLevel',
+      'Thinking level for Spectre responses. **OFF** disables extra reasoning, **LOW/MEDIUM/HIGH** increase the internal thinking budget on supported models. Defaults to **OFF**.'
+    ),
+  },
+  'arduino.spectre.grounding': {
+    type: 'boolean',
+    default: false,
+    markdownDescription: nls.localize(
+      'arduino/preferences/spectre.grounding',
+      'Enable Google Search grounding for Spectre responses. When enabled, Spectre can use Google Search to ground answers. Defaults to false.'
     ),
   },
   'arduino.spectre.mode': {
@@ -371,7 +388,9 @@ export interface ArduinoConfiguration {
   'arduino.sketch.inoBlueprint': string;
   'arduino.checkForUpdates': boolean;
   'arduino.monitor.dockPanel': MonitorWidgetDockPanel;
-  'arduino.spectre.model': 'gemini-2.5-flash' | 'gemini-2.5-flash-lite';
+  'arduino.spectre.model': 'gemini-3.1-flash-lite' | 'gemma-4-31b' | 'gemma-4-26b';
+  'arduino.spectre.thinkingLevel': 'OFF' | 'LOW' | 'MEDIUM' | 'HIGH';
+  'arduino.spectre.grounding': boolean;
   'arduino.spectre.mode': 'basic' | 'agent';
 }
 
