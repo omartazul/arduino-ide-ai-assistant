@@ -2,11 +2,11 @@
 
 **Arduino IDE with integrated Google Gemini AI Assistant for intelligent code generation and autonomous task execution**
 
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)]()
-[![License](https://img.shields.io/badge/license-AGPL--3.0-blue)]()
-[![Arduino IDE](https://img.shields.io/badge/Arduino%20IDE-2.3.8-teal)]()
-[![Gemini AI](https://img.shields.io/badge/Powered%20by-Gemini%203.1-orange)]()
-[![Version](https://img.shields.io/badge/version-3.3.9-teal)]()
+![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
+![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
+![Arduino IDE](https://img.shields.io/badge/Arduino%20IDE-2.3.9-teal)
+![Gemini & Gemma](https://img.shields.io/badge/Powered%20by-Gemini%203.1%20%26%20Gemma%204-orange)
+![Version](https://img.shields.io/badge/version-3.3.9-teal)
 
 ## What is Arduino IDE AI Assistant?
 
@@ -68,10 +68,10 @@ Below are screenshots from the running Arduino IDE AI Assistant UI (left: AI / S
 
 ### Download Pre-built Installer (Windows)
 
-1. Go to [Releases](../../releases)
+1. Go to [Releases](https://github.com/omartazul/arduino-ide-ai-assistant/releases)
 2. Download `Arduino-IDE-AI-Assistant-Setup.exe`
 3. Run the installer
-4. Enter your Gemini API key when prompted
+4. Enter your Gemini API key when prompted (File > Preferences > Spectre)
 
 ### Building from Source
 
@@ -91,34 +91,44 @@ cd electron-app
 yarn package
 ```
 
-The installer will be in `electron-app/dist/`
+The installer will be located in the `electron-app/dist/` directory.
 
 ## Getting Started
 
 ### 1. Get Gemini API Key
 
-1. Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
-2. Create a new API key (free tier available)
-3. Copy the API key
+1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey) and sign in with your Google account.
+2. Click the **"Create API key"** button.
+3. You will be prompted to select an existing Google Cloud project or create a new one.
+4. Once generated, **copy the API key**. Keep it secure! (Google offers a generous free tier for Gemini developers).
 
 ### 2. Configure AI Assistant
 
-1. Open Arduino IDE AI Assistant
-2. Click the AI icon in the sidebar
-3. Enter your Gemini API key
-4. Choose your model (`gemini-3.1-flash-lite`, `gemma-4-31b`, or `gemma-4-26b`)
+1. Open Arduino IDE AI Assistant.
+2. Navigate to **File** > **Preferences** (or press `Ctrl+,` / `Cmd+,`).
+3. Switch to the **Spectre** tab in the Preferences window.
+4. Paste your copied API key into the **"Gemini API key"** input box and click **SAVE KEY**.
+   
+   ![Preferences - Spectre API Key Configuration](static/screenshot-ai-7.png)
+
+5. Customize your settings:
+   - **Model**: Choose your preferred model (e.g., `Gemini 3.1 Flash Lite`).
+   - **Thinking level**: Adjust the reasoning depth if your selected model supports it.
+   - **Search grounding**: Enable this to give the AI access to live internet search results.
+   - **Mode**: Change the default behavior to "Agent Mode" or conversational mode.
+6. Click **OK** to apply the configuration.
 
 ### 3. Start Using
 
 **Conversational Mode:**
-```
-User: How do I read analog sensor on pin A0?
+```text
+User: How do I read an analog sensor on pin A0?
 AI: Here's a simple example...
 ```
 
 **Agent Mode:**
-```
-User: Create a temperature monitor using DHT22 sensor
+```text
+User: Create a temperature monitor using a DHT22 sensor
 AI: [Creates sketch, installs DHT library, sets up code automatically]
 ```
 
@@ -148,11 +158,11 @@ AI: [Creates sketch, installs DHT library, sets up code automatically]
 - Requests: 15 per minute for all supported models
 - Requests per day: 1,500 for `gemini-3.1-flash-lite` / 500 for `gemma-4-31b` and `gemma-4-26b`
 - Output: 65,536 tokens max
-- Input TPM applies to prompt/input tokens only; output tokens do not count toward the minute cap
+- Input TPM applies to prompt/input tokens only; output tokens do not count toward the minute cap.
 
 ## Project Structure
 
-```
+```text
 arduino-ide-ai-assistant/
 ├── arduino-ide-extension/       # IDE extension code
 │   └── src/
@@ -161,6 +171,7 @@ arduino-ide-ai-assistant/
 │       └── node/                # AI backend implementation
 ├── electron-app/                # Electron application
 ├── docs/                        # Documentation
+├── static/                      # UI screenshots/assets
 └── SPECTRE_AI_DOCUMENTATION.md  # Technical documentation
 ```
 
@@ -229,9 +240,9 @@ arduino-ide-ai-assistant/
 - Rebuild the app if you change agent-loop code; the extension and Electron app must both refresh
 
 **Agent mode returns "finished" but no sketch changed:**
-- This usually means the model responded without a usable function call, or the tool-call turn was not preserved correctly across the next request
-- On Gemini 3 models, the first function-call part in a turn must keep its `thoughtSignature` and function-call `id`
-- If you are debugging manually, reload the window after rebuild so the latest extension bundle is active
+- This usually means the model responded without a usable function call, or the tool-call turn was not preserved correctly across the next request.
+- On Gemini 3 models, the first function-call part in a turn must keep its `thoughtSignature` and function-call `id`.
+- If you are debugging manually, reload the window after rebuild so the latest extension bundle is active.
 
 **Memory issues:**
 - localStorage automatically manages 100k tokens
